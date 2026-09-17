@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gplanner"
+version = "0.1.0"
+description = "Governed planning system — GP-SPK-001 governance kernel feasibility spike"
+requires-python = ">=3.13"
+dependencies = [
+    # Durable workflow engine under evaluation (GP-SPK-001 candidate decision).
+    # Pinned exactly: the spike's PASS/FAIL verdict is version-specific (plan R-4).
+    "dbos==2.31.1",
+    # Structured artifacts.
+    "pydantic>=2.13,<3",
+    # RFC 8785 / JCS — the SOLE canonicalization for artifact identity (plan D-3).
+    "rfc8785>=0.1.4,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1,<10",
+    "mypy>=2.3,<3",
+    "ruff>=0.16,<1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["src/gplanner"]

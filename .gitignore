@@ -1,0 +1,21 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# NOTE: `.coord/` is deliberately NOT listed here. It is local coordination
+# state, excluded via .git/info/exclude, which applies to THIS CHECKOUT ONLY and
+# is not distributed with the repository.
+#
+# What that achieves: the coordination files' CONTENTS stay out of normal status
+# and staging. What it does NOT achieve: it is not secrecy about the arrangement
+# (this comment names it, and so does CLAUDE.md), and it is not a security
+# boundary -- neither a local exclude nor a tracked ignore rule prevents
+# `git add -f`. Keeping it untracked is a working convention, not an enforcement
+# mechanism.
