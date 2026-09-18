@@ -1165,14 +1165,35 @@ def test_i_importing_approvals_pulls_in_no_engine_and_no_llm_sdk() -> None:
 
 
 def test_i_no_stage_beyond_the_current_one_has_appeared() -> None:
-    """The scope fence, moved forward by exactly one stage at ST-7, and again at ST-8.
+    """The scope fence, moved forward by exactly one stage at ST-7, ST-8 and now ST-9.
 
     Each move is the same single edit, for the same reason: a stage authorized to
     create a module (plan §22) and a test asserting that module absent cannot both
-    hold. ST-7 removed `store`; ST-8 removes `kernel` and nothing else. `app` and
-    `workflow` are ST-9 work and are still asserted absent, so the fence still fails
-    loudly if a later stage's file appears early.
+    hold. ST-7 removed `store`; ST-8 removed `kernel`; ST-9 creates `app` and
+    `workflow`, which are the last two modules plan §5 names.
+
+    So the fence closes rather than emptying. With nothing left to forbid by name, a
+    loop over an empty tuple would assert nothing at all, and the property the fence
+    existed to protect -- that no file appears which the plan never authorized -- is
+    stated directly instead: the package is exactly plan §5's list of modules.
     """
     assert (SRC / "kernel.py").exists(), "ST-8 creates the kernel; the fence moves with it"
-    for absent in ("app", "workflow"):
-        assert not (SRC / f"{absent}.py").exists(), absent
+    for present in ("app", "workflow"):
+        assert (SRC / f"{present}.py").exists(), present
+    assert {path.stem for path in SRC.glob("*.py")} == {
+        "__init__",
+        "approvals",
+        "artifacts",
+        "app",
+        "canonical",
+        "codec",
+        "digest",
+        "errors",
+        "kernel",
+        "policy",
+        "profile",
+        "require",
+        "states",
+        "store",
+        "workflow",
+    }
