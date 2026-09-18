@@ -844,6 +844,49 @@ def committed_state(path: Path) -> tuple[str | None, int]:
         conn.close()
 
 
+# The ownership refusal's stable discriminators. `_require_transaction_ownership` is the
+# only place in `kernel.py` that raises them -- pinned off the source by
+# `test_r01_the_ownership_check_runs_first_in_each_entry_point` -- so a message carrying
+# them can only have come from the transaction-ownership precondition.
+#
+# The message is the discriminator the frozen contract leaves available: `errors.py` is
+# frozen, so no ownership-specific exception class may be added, and the check carries no
+# guard ID because it decides nothing about governance. Asserting `GovernedPlannerError`
+# alone is not evidence of anything: every governed refusal is one. Substituting
+# `IllegalTransition("apply_scope_approval: illegal transaction")` for the ownership
+# refusal satisfies that assertion while also naming the entry point and the word
+# "transaction", which is exactly the hole these phrases close.
+OWNERSHIP_REFUSAL_PHRASES = (
+    "requires the governance transaction it opens itself",
+    "already inside a transaction owned by the caller",
+    "can neither commit nor roll back",
+)
+
+
+def assert_ownership_refusal(exc: BaseException, entry_point: str) -> None:
+    """Assert `exc` is *the* ST8-R01 ownership refusal, raised by `entry_point`.
+
+    Both halves are load-bearing. The **exact** type -- `GovernedPlannerError` itself,
+    never a subclass -- rejects every refusal the kernel raises for a governance reason
+    (`IllegalTransition`, `ApprovalReplay`, `AuthorityDenied`, `StaleApproval`, ...). The
+    phrases then reject what is left: a bare `GovernedPlannerError` raised elsewhere in
+    the same entry point, such as the missing-case or requires-approval preconditions.
+    Naming the entry point in the opening clause also pins *which* mutator refused.
+    """
+    assert type(exc) is GovernedPlannerError, (
+        f"{entry_point}: the refusal must be GovernedPlannerError itself, not "
+        f"{type(exc).__name__}; a governed error of some other kind is not evidence "
+        f"that the transaction-ownership precondition is what refused"
+    )
+    message = str(exc)
+    assert message.startswith(f"{entry_point} requires the governance transaction"), (
+        f"{entry_point}: refusal does not open with this entry point's ownership "
+        f"precondition: {message!r}"
+    )
+    for phrase in OWNERSHIP_REFUSAL_PHRASES:
+        assert phrase in message, f"{entry_point}: {phrase!r} missing from {message!r}"
+
+
 # --- A. premature success refused ------------------------------------------------
 
 
@@ -862,7 +905,7 @@ def test_r01_apply_inside_a_caller_owned_transaction_is_refused(
     with pytest.raises(GovernedPlannerError) as refusal:
         with opened.transaction():
             kernel.apply_scope_approval(opened, WORKFLOW_ID, statement)
-    assert "transaction" in str(refusal.value)
+    assert_ownership_refusal(refusal.value, "apply_scope_approval")
 
     assert snapshot(h.governance_db) == before
     assert (before.consumptions, before.audits) == (0, 0)
@@ -899,6 +942,7 @@ def test_r01_the_refusal_precedes_every_read_and_write_of_approval_work(
         opened.record_consumption = original_record  # type: ignore[method-assign]
         opened.load_case = original_load  # type: ignore[method-assign]
     assert not isinstance(refusal.value, Exploded)
+    assert_ownership_refusal(refusal.value, "apply_scope_approval")
 
 
 def test_r01_every_mutating_entry_point_refuses_a_caller_owned_transaction(
@@ -924,8 +968,7 @@ def test_r01_every_mutating_entry_point_refuses_a_caller_owned_transaction(
         with pytest.raises(GovernedPlannerError) as refusal:
             with st.transaction():
                 call()
-        assert name in str(refusal.value), name
-        assert "transaction" in str(refusal.value), name
+        assert_ownership_refusal(refusal.value, name)
 
     assert snapshot(h.governance_db) == before
 
@@ -958,7 +1001,7 @@ def test_r01_the_refusal_class_is_frozen_and_errors_py_grew_nothing(st: Store) -
     with pytest.raises(GovernedPlannerError) as refusal:
         with st.transaction():
             kernel.submit_for_review(st, WORKFLOW_ID, ActorKind.SYSTEM)
-    assert type(refusal.value) is GovernedPlannerError
+    assert_ownership_refusal(refusal.value, "submit_for_review")
 
 
 def test_r01_the_ownership_check_is_not_a_registered_guard() -> None:
@@ -996,7 +1039,7 @@ def test_r01_a_consumption_visible_only_inside_a_caller_transaction_is_never_a_r
     statement = mint(digest)
     approval_digest = compute_digest(statement, APPROVAL_MEDIA_TYPE)
 
-    with pytest.raises(GovernedPlannerError):
+    with pytest.raises(GovernedPlannerError) as refusal:
         with opened.transaction():
             opened.record_consumption(
                 approval_id=APPROVAL_ID,
@@ -1015,6 +1058,7 @@ def test_r01_a_consumption_visible_only_inside_a_caller_transaction_is_never_a_r
             # Everything step 4 compares now matches -- on this connection only.
             assert opened.find_consumption(APPROVAL_ID) is not None
             kernel.apply_scope_approval(opened, WORKFLOW_ID, statement)
+    assert_ownership_refusal(refusal.value, "apply_scope_approval")
 
     final = snapshot(h.governance_db)
     assert (final.consumptions, final.audits) == (0, 0)
@@ -1033,17 +1077,19 @@ def test_r01_a_repeated_call_inside_one_caller_transaction_never_converges_to_re
     opened, digest = pending
     statement = mint(digest)
     outcomes: list[kernel.ApplyOutcome] = []
-    refusals: list[str] = []
+    refusals: list[GovernedPlannerError] = []
 
     with opened.transaction():
         for _ in range(2):
             try:
                 outcomes.append(kernel.apply_scope_approval(opened, WORKFLOW_ID, statement))
             except GovernedPlannerError as exc:
-                refusals.append(str(exc))
+                refusals.append(exc)
 
     assert outcomes == []
     assert len(refusals) == 2
+    for refusal in refusals:
+        assert_ownership_refusal(refusal, "apply_scope_approval")
     final = snapshot(h.governance_db)
     assert (final.consumptions, final.audits) == (0, 0)
 
@@ -1085,8 +1131,8 @@ def test_r01_a_caught_kernel_failure_leaves_the_caller_nothing_partial_to_commit
         opened.append_audit = original  # type: ignore[method-assign]
 
     assert len(caught) == 1
-    assert isinstance(caught[0], GovernedPlannerError)
     assert not isinstance(caught[0], Exploded), "step 5h must never have been reached"
+    assert_ownership_refusal(caught[0], "apply_scope_approval")
 
     final = snapshot(h.governance_db)
     assert (final.consumptions, final.audits) == (0, 0)
@@ -1201,3 +1247,20 @@ def test_r01_the_ownership_check_runs_first_in_each_entry_point(st: Store) -> No
         assert isinstance(first.value, ast.Call), f"{name}: first statement is not a call"
         assert isinstance(first.value.func, ast.Name), name
         assert first.value.func.id == "_require_transaction_ownership", name
+
+    # And the message `assert_ownership_refusal` keys on comes from that check and from
+    # nowhere else. If a second site ever adopted the wording, the phrases would stop
+    # identifying the ownership precondition and these regressions would silently
+    # weaken back into "some GovernedPlannerError was raised".
+    guards = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "_require_transaction_ownership"
+    ]
+    assert len(guards) == 1
+    span = range(guards[0].lineno, (guards[0].end_lineno or guards[0].lineno) + 1)
+    lines = source.splitlines()
+    for phrase in OWNERSHIP_REFUSAL_PHRASES:
+        carrying = [number for number, line in enumerate(lines, start=1) if phrase in line]
+        assert len(carrying) == 1, f"{phrase!r} is not unique in kernel.py: {carrying}"
+        assert carrying[0] in span, f"{phrase!r} is raised outside the ownership check"
