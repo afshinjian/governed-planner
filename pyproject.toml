@@ -32,7 +32,9 @@ testpaths = ["tests"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+# GP-AUTO-ST-01 (SD11-12a(ii)): "tests_gpauto" added so that ruff resolves the GP-AUTO
+# test tree as first-party. Additive — the spike's two entries are unchanged.
+src = ["src", "tests", "tests_gpauto"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
@@ -41,3 +43,30 @@ select = ["E", "F", "I", "B", "UP"]
 python_version = "3.13"
 strict = true
 files = ["src/gplanner"]
+
+# --- GP-AUTO-ST-01: additive GP-AUTO gate scope (SD11-12a(ii), SD11-12b) ---------
+#
+# The spike's own gates above are class SD11-12a(i): their configured scope is the
+# spike package and its tests, they keep running unchanged, and they are not any
+# GP-AUTO stage's evidence. Nothing above is deleted, relaxed or re-pointed.
+#
+# This table declares the GP-AUTO gates' configured scope (class SD11-12a(ii)). The
+# GP-AUTO ruff, mypy --strict and decode/import gates read it and inspect exactly
+# these paths, which is what lets each gate enumerate the GP-AUTO paths it inspected
+# rather than assert coverage it never had (SD11-12b).
+[tool.gpauto.gates]
+paths = ["src/gpauto", "tests_gpauto"]
+package_path = "src/gpauto"
+
+# --- GP-AUTO-ST-01 bounded remediation (GA01-R04): frozen traceability sources ---
+#
+# TR11-4 requires the element -> evidence mapping to be generated from the artifacts
+# and the test corpus, never hand-maintained. The AP-03 invariant inventory is
+# therefore read from the frozen AP-03 artifact itself rather than transcribed, and
+# the digest is verified before it is used: an artifact that does not match is not the
+# frozen one, and the generator fails rather than falling back to a second inventory.
+[tool.gpauto.traceability]
+ap03_path = "/root/.claude/plans/you-are-the-architecture-proud-wave.md"
+ap03_sha256 = "434b44fcaaa3a4e1575ba33a91af3e442b0f97d294b805c8e991e932c8308a69"
+ap11_path = "/root/.claude/plans/AP-11-GP-AUTO-001-verification-architecture-and-implementation-stage-plan.md"
+ap11_sha256 = "a01d6ace5e86a026a32c9a18e5dab8bf1768cbfd29cf6b1f9574d901a1409fe7"
