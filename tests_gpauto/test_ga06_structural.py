@@ -50,6 +50,9 @@ from introspect import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
+ST02_OPERATION_MODULES = frozenset({"content_identity.py", "codec.py", "equivalence.py"})
+"""The modules `GP-AUTO-ST-02` was authorized to add operations in, and no others."""
+
 NEVER_AN_ENTITY = {
     "AuthorityCeiling": "merged into the AuthorityBounds value carried by RA-07 (AP-03 §2.2)",
     "DecisionPackage": "demoted to a derivation with no identity (AP-03 §2.5, AP03-I31)",
@@ -165,9 +168,17 @@ def test_the_package_declares_no_function_at_all() -> None:
     (`AP03-I12`, `AP03-I26`); and no derivation of any kind. *The absence is the
     model.* A later stage adds its operations in its own modules under its own
     authorization; none is smuggled in here.
+
+    **Scope from `GP-AUTO-ST-02` on.** ST-02 is the first stage authorized to add
+    operations, and adds them in its own modules — `ST02_OPERATION_MODULES`. This
+    assertion keeps its meaning over every other module, unchanged: they still declare
+    no function at all. The operations ST-02 did add are pinned by name in `test_ga14`,
+    and none of them is an ordering, ranking, merge or selection.
     """
     offenders: list[str] = []
     for path in source_files():
+        if path.name in ST02_OPERATION_MODULES:
+            continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
@@ -374,14 +385,23 @@ def test_gpauto_imports_no_gp_spk_001_module() -> None:
     monkey-patched, re-exported or referenced, and no GP-AUTO behaviour depends on
     their presence. The only two GP-SPK-001 modules GP-AUTO may ever import are
     `canonical` and `digest` — and those are `GP-AUTO-ST-02`'s, not this stage's, so
-    the expected count here is **zero**.
+    the expected count at `GP-AUTO-ST-01` was **zero**.
+
+    **From `GP-AUTO-ST-02` on**, the expected set is exactly the two authorized
+    primitives, imported only by ST-02's identity and equivalence modules — and no
+    other spike module, from anywhere in the package. The imported *names* are pinned
+    in `test_ga14`.
     """
-    offenders = [
-        f"{path.name}: {module}"
+    spike_imports = {
+        (path.name, module)
         for path, module in imported_modules()
         if module == "gplanner" or module.startswith("gplanner.")
-    ]
-    assert offenders == []
+    }
+    assert spike_imports == {
+        ("content_identity.py", "gplanner.canonical"),
+        ("content_identity.py", "gplanner.digest"),
+        ("equivalence.py", "gplanner.canonical"),
+    }
 
 
 @pytest.mark.traces("AP03-I32", "ST01-A3")

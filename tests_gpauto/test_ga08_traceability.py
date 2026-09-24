@@ -188,13 +188,20 @@ def test_every_row_records_the_three_stage_roles_separately() -> None:
 
 @pytest.mark.traces("ST01-A6")
 def test_a_discharged_row_names_this_stage_and_an_undischarged_row_names_a_later_one() -> None:
-    """The implementing stage is where the enforcement first exists (`TR11-4a`(i))."""
+    """The implementing stage is where the enforcement first exists (`TR11-4a`(i)).
+
+    From `GP-AUTO-ST-02` on, *"this stage"* is the stage whose test modules carry the
+    element's passing evidence — derived from the corpus, never declared per row — and
+    it is always a stage that has run. An owed row names a stage that has not.
+    """
+    evidence = traceability.declared_evidence()
     for row in traceability.matrix(synthetic_results()):
         if row.disposition == DISCHARGED:
-            assert row.implementing == traceability.IMPLEMENTING_STAGE, row.element
+            assert row.implementing == traceability.evidence_stage(evidence[row.element])
+            assert row.implementing in traceability.STAGES_RUN, row.element
         elif row.element in OWED_BY:
             assert row.implementing == OWED_BY[row.element][0], row.element
-            assert row.implementing != traceability.IMPLEMENTING_STAGE, row.element
+            assert row.implementing not in traceability.STAGES_RUN, row.element
 
 
 # --- D. Deferred clauses --------------------------------------------------------

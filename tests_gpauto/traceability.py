@@ -1,7 +1,8 @@
-"""The `GP-AUTO-ST-01` traceability matrix: frozen inventory, executed evidence.
+"""The GP-AUTO traceability matrix: frozen inventory, executed evidence.
 
 Design basis: AP-11 §3 (`TR11-1`…`TR11-9`), §13 (`EV11-1`, `EV11-5`, `EV11-6`,
-`EV11-7`), §15 (`SG11-9`), §16 (`GP-AUTO-ST-01` acceptance).
+`EV11-7`), §15 (`SG11-9`), §16 (`GP-AUTO-ST-01` and `GP-AUTO-ST-02` acceptance);
+AP-07 §5 (`ID-*`, `EQ-*`), §23 (`VM-11`), §23.1 (`DC-*`).
 
 Three things are read; nothing normative is transcribed.
 
@@ -41,6 +42,20 @@ that implements that operation, with the clauses that *are* enforced recorded as
 support. An impossibility clause is not such an operation: `VP11-4` and §3.2 make
 structural absence the primary evidence for those, and the absence exists now.
 
+**From `GP-AUTO-ST-02` on, the matrix covers more than one stage.** ST-02's frozen
+inputs are AP-07 §5 (`ID-*`, `EQ-*`), §23.1 (`DC-1`…`DC-5`) and AP-11's `SD11-1`,
+`SD11-2`, `SD11-4`, with `VM-11` named by its negative tests (AP-11 §16). Those rows
+are parsed out of the **frozen AP-07 and AP-11 artifacts**, digest-verified exactly
+as AP-03 is. AP-07's path and digest are recorded here in the test tree rather than in
+`pyproject.toml`, because ST-02's authorized scope is its modules and tests and does
+not carry ST-01's tool-configuration clause.
+
+**Which stage implemented an element is derived, not declared.** Each test module
+that belongs to a stage after ST-01 states its stage as a module constant,
+`GPAUTO_STAGE`; ST-01's modules predate the constant and are ST-01's. A discharged
+element's implementing and local-verifying stage (`TR11-4a`) is the **earliest**
+stage whose modules carry its passing evidence — where the enforcement first exists.
+
 Run it:
 
     pytest tests_gpauto --junitxml=<results.xml>
@@ -71,6 +86,40 @@ UNDISCHARGED = "undischarged"
 NOT_APPLICABLE = "N/A"
 
 IMPLEMENTING_STAGE = "GP-AUTO-ST-01"
+"""The stage of every test module that declares no `GPAUTO_STAGE` — ST-01's, which
+predate the declaration. Later stages' modules always declare theirs."""
+
+STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02")
+"""The stages whose code and tests this matrix is generated over. A stage outside this
+tuple has not run, so a row naming it as implementing stage must be an owed row."""
+
+AP07_PATH = Path("/root/.claude/plans/you-are-now-authorized-vectorized-karp.md")
+AP07_SHA256 = "64b6c3ec3c296c8ea1eee008eb81a50c354ea23b70dfe1d2c56fe175fb374f8d"
+"""Frozen AP-07 (Persistence & Message Architecture), 1127 lines / 245910 bytes.
+
+Recorded here rather than in `pyproject.toml`: `GP-AUTO-ST-02`'s authorized scope is
+its modules and tests, so its frozen source is expressed inside the test tree."""
+
+AP07_ROW = re.compile(r"^\|\s*((?:ID|EQ|DC)-\d+|VM-11)\s*\|\s*(.+?)\s*\|\s*$")
+AP07_RECORD_ROW = re.compile(r"^\|\s*(RC-\d+)\s*\|(.+)\|\s*$")
+AP07_EQ0 = re.compile(r"^> \*\*`(EQ-0)`\.\*\*\s*(.+?)\s*$")
+AP11_SD_ROW = re.compile(r"^\|\s*(SD11-\d+[a-z]?)\s*\|\s*(.+?)\s*\|\s*$")
+
+ST02_AP07_RECORD_ELEMENTS = ("RC-21",)
+"""The AP-07 §14 record rows `GP-AUTO-ST-02` implements.
+
+Exactly the rows this stage's frozen basis names — `RC-21` `ArtifactContent`, whose
+content column is *"the bytes as produced"*. The record table's other ~60 rows are the
+store's classes and belong to `GP-AUTO-ST-03`; parsing them here would put rows in the
+matrix that no stage that has run could dispose, which `TR11-3` and `EV11-6` are not a
+licence to do. Selected the same way `ST02_AP11_ELEMENTS` is, and checked against the
+frozen text rather than transcribed.
+"""
+
+ST02_AP11_ELEMENTS = ("SD11-1", "SD11-2", "SD11-4", "SD11-15", "SD11-16")
+"""AP-11 §16's `GP-AUTO-ST-02` row names `SD11-1`, `SD11-2`, `SD11-4` as frozen inputs
+and `SD11-15` as discovery-review scope; `SD11-16` is the import boundary the two
+authorized primitives are imported under. `test_ga15` checks the row names them."""
 INTEGRATIVE_STAGE = "GP-AUTO-ST-18"
 """`TR11-4a`(iii)'s integrative re-verification stage.
 
@@ -101,8 +150,11 @@ def frozen_artifact_text(path_key: str, digest_key: str) -> str:
     from something else while claiming the frozen source.
     """
     configured = _traceability_configuration()
-    path = Path(configured[path_key])
-    expected = configured[digest_key]
+    return verified_text(Path(configured[path_key]), configured[digest_key])
+
+
+def verified_text(path: Path, expected: str) -> str:
+    """A frozen artifact's text, only if its SHA-256 is the recorded one."""
     if not path.is_file():
         raise FrozenSourceError(f"frozen artifact not found: {path}")
     raw = path.read_bytes()
@@ -128,6 +180,53 @@ def ap03_invariants() -> dict[str, str]:
     if not inventory:
         raise FrozenSourceError("no AP-03 invariant rows parsed from the frozen artifact")
     return inventory
+
+
+def ap07_elements() -> dict[str, str]:
+    """`ID-1`…`ID-14`, `EQ-0`…`EQ-10`, `DC-1`…`DC-5` and `VM-11`, from frozen AP-07."""
+    inventory: dict[str, str] = {}
+    for line in verified_text(AP07_PATH, AP07_SHA256).splitlines():
+        matched = AP07_ROW.match(line) or AP07_EQ0.match(line)
+        if matched is None:
+            continue
+        element, statement = matched.group(1), matched.group(2)
+        if element in inventory:
+            raise FrozenSourceError(f"duplicate row in the frozen AP-07 artifact: {element}")
+        inventory[element] = statement
+    if not inventory:
+        raise FrozenSourceError("no AP-07 rows parsed from the frozen artifact")
+    return inventory
+
+
+def ap07_record_elements() -> dict[str, str]:
+    """The `RC-*` rows this stage implements, from frozen AP-07 §14's record table."""
+    found: dict[str, str] = {}
+    for line in verified_text(AP07_PATH, AP07_SHA256).splitlines():
+        matched = AP07_RECORD_ROW.match(line)
+        if matched is not None and matched.group(1) in ST02_AP07_RECORD_ELEMENTS:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate record row in frozen AP-07: {matched.group(1)}")
+            columns = [column.strip() for column in matched.group(2).split("|")]
+            found[matched.group(1)] = " / ".join(column for column in columns if column)
+    missing = set(ST02_AP07_RECORD_ELEMENTS) - set(found)
+    if missing:
+        raise FrozenSourceError(f"AP-07 record rows not found: {sorted(missing)}")
+    return {element: found[element] for element in ST02_AP07_RECORD_ELEMENTS}
+
+
+def ap11_elements() -> dict[str, str]:
+    """The `SD11-*` rows `GP-AUTO-ST-02` implements, from frozen AP-11 §14."""
+    found: dict[str, str] = {}
+    for line in frozen_artifact_text("ap11_path", "ap11_sha256").splitlines():
+        matched = AP11_SD_ROW.match(line)
+        if matched is not None and matched.group(1) in ST02_AP11_ELEMENTS:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate row in frozen AP-11: {matched.group(1)}")
+            found[matched.group(1)] = matched.group(2)
+    missing = set(ST02_AP11_ELEMENTS) - set(found)
+    if missing:
+        raise FrozenSourceError(f"AP-11 rows not found in the frozen artifact: {sorted(missing)}")
+    return {element: found[element] for element in ST02_AP11_ELEMENTS}
 
 
 def headline(statement: str) -> str:
@@ -178,6 +277,34 @@ answer for a test that verifies this stage's contract rather than an AP-03 invar
 They restate no AP-03 content and no element is disposed by them.
 """
 
+ST02_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST02-D1": "Deliverable: content-identity derivation over the canonical preimage.",
+    "ST02-D2": "Deliverable: equivalence comparison for authority-bearing content.",
+    "ST02-D3": "Deliverable: GP-AUTO codec with model_validate_json only.",
+    "ST02-T1": "Test: canonical preimage stored and used as the authoritative representation.",
+    "ST02-T2": "Test: identical content => identical identity.",
+    "ST02-T3": "Test: equivalence over RA-01...RA-09 plus liveness.",
+    "ST02-N1": "Negative: json.loads + model_validate absent package-wide.",
+    "ST02-N2": "Negative: re-serialization round trip not treated as identity (DC-4).",
+    "ST02-N3": "Negative: differing authority-bearing content => not equivalent.",
+    "ST02-N4": "Negative: format version never read as recency or precedence (VM-11).",
+    "ST02-M1": "Mutation: equivalence comparison guard, per mutant, killing test named.",
+    "ST02-M2": "Mutation: decode-path guard by schema mutation (MU11-5), per mutant.",
+    "ST02-G1": "Static gate: ruff scope extended to ST-02's modules (SD11-12b).",
+    "ST02-G2": "Static gate: mypy --strict scope extended to ST-02's modules (SD11-12b).",
+    "ST02-G3": "Static gate: GP-AUTO decode/import gate, load-bearing on the codec (DC-2).",
+    "ST02-A1": "Acceptance: one canonicalization and one SHA-256 site in the repository.",
+    "ST02-A2": "Acceptance: equivalence conformant (AP-03 §4.4's four properties).",
+    "ST02-A3": "Acceptance: codec boundary enforced by the existing gate.",
+    "ST02-A5": "Acceptance: only the two authorized primitives imported; the spike, "
+    "its tests, documents and gates unchanged (SD11-10, SD11-16).",
+}
+"""Labels for `GP-AUTO-ST-02`'s own contract rows — as `ST01_CONTRACT_OBLIGATIONS`,
+**not** a second normative inventory. The normative rows are AP-07's and AP-11's,
+parsed from the frozen artifacts. (`ST02-A4` is not a label: the contract's fourth
+acceptance-side obligation, reused primitives verified rather than assumed, is the
+frozen row `SD11-15` itself.)"""
+
 OWED_BY: dict[str, tuple[str, str]] = {
     "AP03-I01": (
         "GP-AUTO-ST-06",
@@ -188,11 +315,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "The structural halves hold now — RA-02 is singular and multiplicity is "
         "representable — but 'at most one may be resolved as root and govern' is a "
         "resolution outcome, which this stage does not implement.",
-    ),
-    "AP03-I04": (
-        "GP-AUTO-ST-02",
-        "Content equivalence needs canonicalization and comparison, which AP-03 §4.4 "
-        "expressly does not design and which ST-02 owns under AP-07.",
     ),
     "AP03-I06": (
         "GP-AUTO-ST-06",
@@ -274,6 +396,67 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "distinction between no set, an empty set and not-yet-observed is already "
         "expressible and is tested here.",
     ),
+    # --- GP-AUTO-ST-02's AP-07 rows whose remaining clause needs a later operation ---
+    "ID-3": (
+        "GP-AUTO-ST-03",
+        "The shape of a minted identifier — no time, sequence, counter or embedded "
+        "ordering — is a property of generation, and nothing mints before the store's "
+        "create-only surface. The 'no content derivation' clause holds now: no GP-AUTO "
+        "code derives any identity but the two content identities.",
+    ),
+    "ID-4": (
+        "GP-AUTO-ST-03",
+        "Generation relying on unpredictability, and syntactic-only validation, are "
+        "properties of minting, which first exists at the store's create-only surface.",
+    ),
+    "ID-5": (
+        "GP-AUTO-ST-03",
+        "Stated of minted identifiers ('stable, opaque, per-occurrence ... and nothing "
+        "more'); no identifier is minted before the store. ST-02 makes no uniqueness, "
+        "ordering, freshness or authentication claim of any identity.",
+    ),
+    "ID-7": (
+        "GP-AUTO-ST-03",
+        "Stability across store re-read and store version change is a store property. "
+        "Stability across process restart of the content-identity derivation is shown "
+        "here (cross-process, differing hash seeds).",
+    ),
+    "ID-8": (
+        "GP-AUTO-ST-03",
+        "'No write surface expresses re-parenting' is a property of a write surface; the "
+        "dependent-identity pair structure is ST-01's and is unchanged.",
+    ),
+    "ID-14": (
+        "GP-AUTO-ST-03",
+        "Byte sharing without merging productions is a content-addressed storage rule. "
+        "Here: identical text is one content identity carrying no provenance.",
+    ),
+    "EQ-6": (
+        "GP-AUTO-ST-06",
+        "Indeterminate is never equivalence, and is shown here in every form. The rest "
+        "of the rule — record an AuthorityAmbiguity naming the identity and disagreeing "
+        "classes, constitute no instance, do not begin the stage — is root resolution.",
+    ),
+    "EQ-7": (
+        "GP-AUTO-ST-03",
+        "The comparison produces no identity, key, digest or ranking, and exposes no "
+        "normal form — shown here. 'Never stored as a name, a dedup key or a uniqueness "
+        "constraint' binds the store; 'not consulted by any guard' binds later guards.",
+    ),
+    "RC-21": (
+        "GP-AUTO-ST-03",
+        "The content clause is discharged here and is what the byte-exact preimage "
+        "implements: artifact content is *the bytes as produced*, any byte string, "
+        "recovered exactly. What remains is the row's storage half — the stored "
+        "canonical preimage as the single authoritative representation of a **row**, "
+        "under write class W1 — and there is no store yet for that to be true of.",
+    ),
+    "EQ-9": (
+        "GP-AUTO-ST-03",
+        "Record-format versions (VM-1) first exist with the record classes. The only "
+        "format tag today is the content-preimage scheme, and a preimage under any tag "
+        "the running definition does not cover is refused.",
+    ),
 }
 """For every AP-03 element this stage does not discharge: its first executable stage.
 
@@ -284,8 +467,38 @@ none is invented here.
 
 
 def inventory() -> dict[str, str]:
-    """The full in-scope element set: frozen AP-03 invariants plus this stage's rows."""
-    return {**ap03_invariants(), **ST01_CONTRACT_OBLIGATIONS}
+    """The full in-scope element set, over every stage that has run.
+
+    Frozen AP-03 invariants and ST-01's contract rows; frozen AP-07 and AP-11 rows and
+    ST-02's contract rows.
+    """
+    return {
+        **ap03_invariants(),
+        **ST01_CONTRACT_OBLIGATIONS,
+        **ap07_elements(),
+        **ap07_record_elements(),
+        **ap11_elements(),
+        **ST02_CONTRACT_OBLIGATIONS,
+    }
+
+
+def module_stage(path: Path) -> str:
+    """The stage a test module declares by `GPAUTO_STAGE`, else ST-01's (see above)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and [getattr(target, "id", None) for target in node.targets] == ["GPAUTO_STAGE"]
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    return IMPLEMENTING_STAGE
+
+
+def evidence_stage(node_ids: list[str]) -> str:
+    """The earliest stage among the modules carrying these tests (`TR11-4a`(i))."""
+    return min(module_stage(REPOSITORY_ROOT / node_id.split("::")[0]) for node_id in node_ids)
 
 
 def _declared(marker: str) -> dict[str, list[str]]:
@@ -387,14 +600,15 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
         ]
 
         if designated and not unrun and not failed:
+            stage = evidence_stage(designated)
             rows.append(
                 Row(
                     element,
                     statement,
                     DISCHARGED,
                     "; ".join(executed),
-                    IMPLEMENTING_STAGE,
-                    IMPLEMENTING_STAGE,
+                    stage,
+                    stage,
                     INTEGRATIVE_STAGE,
                     headline(statement),
                 )
@@ -402,6 +616,7 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
             continue
 
         if designated:
+            stage = evidence_stage(designated)
             reason = "declared evidence did not pass: " + "; ".join(sorted(failed + unrun))
             rows.append(
                 Row(
@@ -409,8 +624,8 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
                     statement,
                     UNDISCHARGED,
                     reason,
-                    IMPLEMENTING_STAGE,
-                    IMPLEMENTING_STAGE,
+                    stage,
+                    stage,
                     INTEGRATIVE_STAGE,
                     headline(statement),
                 )
@@ -477,11 +692,16 @@ def main(argv: list[str] | None = None) -> int:
     undischarged = [row for row in rows if row.disposition == UNDISCHARGED]
     not_applicable = [row for row in rows if row.disposition == NOT_APPLICABLE]
 
-    print("GP-AUTO-ST-01 traceability matrix (TR11-4) — regenerated, stored nowhere (TR11-5).")
-    print("AP-03 invariant inventory: parsed from the frozen AP-03 artifact, digest verified.")
+    print("GP-AUTO traceability matrix (TR11-4) — regenerated, stored nowhere (TR11-5).")
+    print(f"Stages run: {', '.join(STAGES_RUN)}.")
+    print(
+        "Inventory: AP-03 invariants, AP-07 ID-*/EQ-*/DC-*/VM-11 and AP-11 SD11-* rows,"
+        " parsed from the frozen artifacts, digests verified; plus each stage's contract rows."
+    )
     print(f"Executed evidence: {source}")
     print("Disposition is relative to this stage's delta and its frozen obligations (SG11-9).\n")
     print(f"{'element':<11} {'disposition':<13} {'impl':<15} {'local':<15} {'integrative':<15}")
+    by_stage: dict[str, list[Row]] = {}
     print("-" * 100)
     for row in rows:
         print(
@@ -491,6 +711,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'':<12}{row.note}")
         print(f"{'':<12}{row.detail}")
     print("-" * 100)
+    for row in rows:
+        by_stage.setdefault(row.implementing, []).append(row)
+    for stage in sorted(by_stage):
+        counted = by_stage[stage]
+        print(
+            f"implementing {stage}: {len(counted)} element(s) — "
+            f"{sum(r.disposition == DISCHARGED for r in counted)} discharged, "
+            f"{sum(r.disposition == UNDISCHARGED for r in counted)} undischarged"
+        )
     print(f"in-scope elements : {len(rows)}")
     print(f"discharged        : {len(discharged)}")
     print(f"undischarged      : {len(undischarged)}   (a FAILING disposition — TR11-9, EV11-6)")
