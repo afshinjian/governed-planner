@@ -499,7 +499,7 @@ def exceptional_recovery_decision() -> OwnerDecision:
 
 def stage_outcome() -> StageOutcome:
     return StageOutcome(
-        identity=StageOutcomeId(parent_stage=STAGE_ID),
+        identity=StageOutcomeId(parent_stage=STAGE_ID, local_discriminator="outcome-token"),
         disposition=StageOutcomeDisposition.ACCEPTED,
         established_by=DECISION_ID,
     )
@@ -549,7 +549,9 @@ def consumed_authorization() -> OwnerAuthorization:
     return owner_authorization().model_copy(
         update={
             "liveness": ConsumedDisposition(
-                established_by_outcome=StageOutcomeId(parent_stage=STAGE_ID)
+                established_by_outcome=StageOutcomeId(
+                    parent_stage=STAGE_ID, local_discriminator="outcome-token"
+                )
             )
         }
     )

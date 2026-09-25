@@ -279,9 +279,20 @@ class ClosureAssessmentId(DependentIdentity):
 
 
 class StageOutcomeId(DependentIdentity):
-    """Dependent on `GovernedStage` (AP-03 §3).
+    """`GovernedStage` × a minted local discriminator (AP-03 §3, AP-07 `ID-8`).
+
+    AP-03 §3 calls this identity *minted, dependent on GovernedStage*. The kind recorded
+    is `DEPENDENT`, as for `ActivationEffectId`; the minted part is carried by
+    `local_discriminator`, minted once per outcome occurrence. The parent alone is not
+    the identity: one stage may settle in several sequential authorization epochs, each
+    producing its own outcome, so a parent-only identity would collapse them into one.
+
+    `local_discriminator` is opaque and carries **no ordering**, and is derived from
+    nothing — not the authorization, not the epoch, not the OwnerDecision and not a
+    replay key. Minting it is not this module's; nothing here generates one.
 
     Never the OwnerDecision that establishes it, and never gate arrival (`AP03-I31`).
     """
 
     parent_stage: GovernedStageId
+    local_discriminator: str

@@ -51,7 +51,14 @@ EXPECTED_KINDS: dict[str, tuple[IdentityKind, ...]] = {
     "ClosureAssessmentId": (IdentityKind.DEPENDENT,),
     "StageOutcomeId": (IdentityKind.DEPENDENT,),
 }
-"""AP-03 §3's identity table, transcribed. Keys are the concrete identity types."""
+"""AP-03 §3's identity table as kind data. Keys are the concrete identity types.
+
+The tuple lists *alternative* kinds, not a composition, so it is not the whole of every
+row. `StageOutcomeId` is AP-03's *minted, dependent on GovernedStage*: it is recorded as
+`DEPENDENT`, like `ActivationEffectId`, and its minted-per-occurrence part is a field —
+`local_discriminator` — beside its parent, not a second kind here. The row is therefore
+not a one-field transcription of AP-03 §3; the tests below assert the field shape.
+"""
 
 ABSTRACT_IDENTITY_NAMES = frozenset(
     {
@@ -219,6 +226,139 @@ def test_a_dependent_identity_is_equal_only_when_its_whole_pair_is() -> None:
     )
     assert first == same
     assert first != other_set
+
+
+def _outcome_id(stage: str, discriminator: str) -> gid.StageOutcomeId:
+    return gid.StageOutcomeId(
+        parent_stage=gid.GovernedStageId(value=stage), local_discriminator=discriminator
+    )
+
+
+@pytest.mark.traces("ST01-D2")
+def test_a_stage_outcome_identity_is_its_stage_and_a_minted_discriminator() -> None:
+    """AP-03 §3: *minted, dependent on GovernedStage*; AP-07 `ID-8`: stored as
+    (parent, discriminator), never flattened. The shape is exactly that pair."""
+    assert gid.StageOutcomeId.IDENTITY_KINDS == (IdentityKind.DEPENDENT,)
+    assert issubclass(gid.StageOutcomeId, gid.DependentIdentity)
+    assert not issubclass(gid.StageOutcomeId, gid.OpaqueIdentity)
+    fields = gid.StageOutcomeId.model_fields
+    assert set(fields) == {"parent_stage", "local_discriminator"}
+    assert fields["parent_stage"].annotation is gid.GovernedStageId
+    assert fields["local_discriminator"].annotation is str
+
+
+@pytest.mark.traces("ST01-D2")
+def test_two_outcomes_of_one_stage_are_two_identities() -> None:
+    """One stage may settle once per authorization epoch, each settlement its own
+    outcome; a parent-only identity would make the second one the first."""
+    first = _outcome_id("stage", "outcome-1")
+    second = _outcome_id("stage", "outcome-2")
+    assert first.parent_stage == second.parent_stage
+    assert first != second
+    assert first.model_dump_json() != second.model_dump_json()
+    assert len({first, second}) == 2
+
+
+@pytest.mark.traces("ST01-D2")
+def test_local_discriminator_participates_in_stage_outcome_id_hashing() -> None:
+    """Changing only the discriminator changes the hash.
+
+    Set size alone cannot show this: a hash over `parent_stage` alone still yields two
+    set members, because equality separates them after the collision. The hash values
+    themselves must differ.
+    """
+    stage = gid.GovernedStageId(value="stage")
+    outcome_a = gid.StageOutcomeId(parent_stage=stage, local_discriminator="outcome-a")
+    outcome_b = gid.StageOutcomeId(parent_stage=stage, local_discriminator="outcome-b")
+    assert outcome_a != outcome_b
+    assert hash(outcome_a) != hash(outcome_b)
+
+
+@pytest.mark.traces("ST01-D2")
+def test_a_stage_outcome_identity_is_equal_only_when_its_whole_pair_is() -> None:
+    """Same parent and same discriminator is one identity, however often built; a
+    different parent under the same discriminator is another."""
+    first = _outcome_id("stage", "outcome")
+    same = _outcome_id("stage", "outcome")
+    other_stage = _outcome_id("other-stage", "outcome")
+    assert first == same
+    assert hash(first) == hash(same)
+    assert first.model_dump_json() == same.model_dump_json()
+    assert first != other_stage
+    assert first.model_dump_json() != other_stage.model_dump_json()
+
+
+@pytest.mark.traces("ST01-D2")
+def test_a_stage_outcome_identity_round_trips_with_its_discriminator() -> None:
+    """The discriminator survives the permitted JSON path, and decoding keeps it
+    distinguishing: two outcomes of one stage decode to two identities."""
+    first = _outcome_id("stage", "outcome-1")
+    second = _outcome_id("stage", "outcome-2")
+    for identity in (first, second):
+        encoded = identity.model_dump_json()
+        assert '"local_discriminator"' in encoded
+        decoded = gid.StageOutcomeId.model_validate_json(encoded)
+        assert decoded == identity
+        assert decoded.model_dump_json() == encoded
+    assert gid.StageOutcomeId.model_validate_json(
+        first.model_dump_json()
+    ) != gid.StageOutcomeId.model_validate_json(second.model_dump_json())
+
+
+@pytest.mark.traces("ST01-D2")
+def test_a_stage_outcome_identity_cannot_be_built_from_its_stage_alone() -> None:
+    """The discriminator is required, so the collapsed single-parent form is refused."""
+    with pytest.raises(ValidationError) as caught:
+        gid.StageOutcomeId(parent_stage=gid.GovernedStageId(value="s"))  # type: ignore[call-arg]
+    assert caught.value.errors()[0]["type"] == "missing"
+    with pytest.raises(ValidationError) as decoded:
+        gid.StageOutcomeId.model_validate_json('{"parent_stage": {"value": "s"}}')
+    assert decoded.value.errors()[0]["type"] == "missing"
+
+
+MALFORMED_DISCRIMINATORS: tuple[object, ...] = (1, None, b"outcome", ("outcome",))
+
+
+@pytest.mark.traces("ST01-N3")
+@pytest.mark.parametrize("owner", [gid.StageOutcomeId, gid.ActivationEffectId])
+@pytest.mark.parametrize("malformed", MALFORMED_DISCRIMINATORS, ids=repr)
+def test_a_malformed_discriminator_is_refused_as_the_precedent_refuses_it(
+    owner: type[gid.DependentIdentity], malformed: object
+) -> None:
+    """`ActivationEffectId` is the accepted dependent-plus-discriminator precedent;
+    `StageOutcomeId` refuses exactly what it refuses, with the same error type."""
+    parent_field, discriminator_field = owner.model_fields
+    parent: Any = (
+        gid.GovernedStageId(value="s")
+        if owner is gid.StageOutcomeId
+        else gid.WorkerActivationId(value="a")
+    )
+    with pytest.raises(ValidationError) as caught:
+        owner(**{parent_field: parent, discriminator_field: malformed})
+    assert caught.value.errors()[0]["type"] == "string_type"
+
+
+@pytest.mark.traces("ST01-N3")
+def test_a_stage_outcome_identity_refuses_a_parent_of_the_wrong_kind() -> None:
+    """Dependent on a GovernedStage — not a project, not an authorization."""
+    for wrong in (gid.ProjectId(value="s"), gid.OwnerAuthorizationId(value="s")):
+        with pytest.raises(ValidationError):
+            gid.StageOutcomeId(parent_stage=wrong, local_discriminator="o")  # type: ignore[arg-type]
+
+
+@pytest.mark.traces("AP03-I25")
+def test_a_stage_outcome_identity_names_no_authorization() -> None:
+    """`SO-1`: the discriminator is not derived from the authorization, and the
+    identity has no slot that could name one or its record."""
+    for field_info in gid.StageOutcomeId.model_fields.values():
+        assert field_info.annotation not in (gid.OwnerAuthorizationId, gid.AuthorizationRecordId)
+    with pytest.raises(ValidationError) as caught:
+        gid.StageOutcomeId(
+            parent_stage=gid.GovernedStageId(value="s"),
+            local_discriminator="o",
+            authorization=gid.OwnerAuthorizationId(value="a"),  # type: ignore[call-arg]
+        )
+    assert caught.value.errors()[0]["type"] == "extra_forbidden"
 
 
 @pytest.mark.traces("ST01-D1")

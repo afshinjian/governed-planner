@@ -209,7 +209,9 @@ DIFFERING_IN_ONE_CLASS: Mapping[
         ),
         AuthorityBearingContentClass.LIVENESS_FACTS: lambda: content(
             liveness=ConsumedDisposition(
-                established_by_outcome=StageOutcomeId(parent_stage=fixtures.STAGE_ID)
+                established_by_outcome=StageOutcomeId(
+                    parent_stage=fixtures.STAGE_ID, local_discriminator="outcome-token"
+                )
             )
         ),
     }
