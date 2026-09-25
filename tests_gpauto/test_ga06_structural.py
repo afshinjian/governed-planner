@@ -53,6 +53,11 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 ST02_OPERATION_MODULES = frozenset({"content_identity.py", "codec.py", "equivalence.py"})
 """The modules `GP-AUTO-ST-02` was authorized to add operations in, and no others."""
 
+ST03_OPERATION_MODULES = frozenset({"minting.py", "store_schema.py", "store.py"})
+"""The modules `GP-AUTO-ST-03` was authorized to add operations in — its store modules
+(AP-11 ST-03 amendment §11.1, *Authorized scope*) — and no others. Its vocabulary,
+identity and record modules declare no function, and `test_ga16` asserts that."""
+
 NEVER_AN_ENTITY = {
     "AuthorityCeiling": "merged into the AuthorityBounds value carried by RA-07 (AP-03 §2.2)",
     "DecisionPackage": "demoted to a derivation with no identity (AP-03 §2.5, AP03-I31)",
@@ -177,7 +182,7 @@ def test_the_package_declares_no_function_at_all() -> None:
     """
     offenders: list[str] = []
     for path in source_files():
-        if path.name in ST02_OPERATION_MODULES:
+        if path.name in ST02_OPERATION_MODULES | ST03_OPERATION_MODULES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

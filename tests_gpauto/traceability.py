@@ -89,7 +89,7 @@ IMPLEMENTING_STAGE = "GP-AUTO-ST-01"
 """The stage of every test module that declares no `GPAUTO_STAGE` — ST-01's, which
 predate the declaration. Later stages' modules always declare theirs."""
 
-STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02")
+STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02", "GP-AUTO-ST-03")
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
 
@@ -99,6 +99,23 @@ AP07_SHA256 = "64b6c3ec3c296c8ea1eee008eb81a50c354ea23b70dfe1d2c56fe175fb374f8d"
 
 Recorded here rather than in `pyproject.toml`: `GP-AUTO-ST-02`'s authorized scope is
 its modules and tests, so its frozen source is expressed inside the test tree."""
+
+AP11_ST03_PATH = Path("/root/.claude/plans/AP-11-AMENDMENT-ST03-store-realization-boundary.md")
+AP11_ST03_SHA256 = "8b8b785b73bcf41c09633912514ef722fd993074558d9dda8c637e2db6c91658"
+"""The accepted AP-11 ST-03 store-realization amendment, 451 lines / 61690 bytes."""
+
+AP11_ST03_FOLLOWON_PATH = Path(
+    "/root/.claude/plans/AP-11-AMENDMENT-ST03-FOLLOW-ON-root-resolution-outcome-carrier.md"
+)
+AP11_ST03_FOLLOWON_SHA256 = "d084db02d31a68e7e8885cfda146f5452b70041007ef195c08ae020db26b405e"
+"""The accepted ST-03 follow-on amendment, 153 lines / 18457 bytes."""
+
+AP10_PATH = Path("/root/.claude/plans/AP-10-GP-AUTO-001-coord-compatibility-and-migration.md")
+AP10_SHA256 = "d28a828b59064a10d45c32a28478c2f762567aa34034caff14397bcb2ddb4a3b"
+"""Frozen AP-10, 741 lines / 139777 bytes — the `PB-2` placement row.
+
+Like AP-07's, these three are recorded in the test tree: `GP-AUTO-ST-03`'s authorized
+scope is its store modules and tests, with no tool-configuration clause."""
 
 AP07_ROW = re.compile(r"^\|\s*((?:ID|EQ|DC)-\d+|VM-11)\s*\|\s*(.+?)\s*\|\s*$")
 AP07_RECORD_ROW = re.compile(r"^\|\s*(RC-\d+)\s*\|(.+)\|\s*$")
@@ -115,6 +132,26 @@ matrix that no stage that has run could dispose, which `TR11-3` and `EV11-6` are
 licence to do. Selected the same way `ST02_AP11_ELEMENTS` is, and checked against the
 frozen text rather than transcribed.
 """
+
+ST03_AP07_RECORD_ELEMENTS = tuple(f"RC-{number}" for number in range(10, 42))
+"""The AP-07 §3.2 record classes `GP-AUTO-ST-03` realizes — every one, `RC-10` … `RC-41`
+(`SRB11-1`, `SRB11-31`). `RC-21` is among them: owed by ST-03 since ST-02's acceptance."""
+
+AMENDMENT_ROW = re.compile(r"^\|\s*((?:IV11|AP11-I)-?\d+)\s*\|(.+)\|\s*$")
+ST03_AMENDMENT_ELEMENTS = (
+    *(f"IV11-{number}" for number in range(1, 16)),
+    *(f"AP11-I{number}" for number in range(64, 72)),
+)
+"""From the store-realization amendment: `IV11-1` … `IV11-15` (`SRB11-33`) and the new
+invariants `AP11-I64` … `AP11-I71`. **`AP11-I72` is not a matrix row**: it is the `SG11-10`
+bound, whose evidence is the stage-size evaluation reported to the OWNER at the stage
+outcome (`SZ11-5`). No executed test can discharge it and no later stage owes it, so
+recording it here would force either a false discharge or an invented owner."""
+
+ST03_FOLLOWON_ELEMENTS = ("AP11-I73",)
+
+PLACEMENT_ELEMENTS = ("PB-2(i)", "PB-2(ii)", "PB-2(iii)", "PB-2(iv)", "PB-2(v)")
+"""AP-10 `PB-2`'s five boundaries, each its own row (`SRB11-35`)."""
 
 ST02_AP11_ELEMENTS = ("SD11-1", "SD11-2", "SD11-4", "SD11-15", "SD11-16")
 """AP-11 §16's `GP-AUTO-ST-02` row names `SD11-1`, `SD11-2`, `SD11-4` as frozen inputs
@@ -199,19 +236,70 @@ def ap07_elements() -> dict[str, str]:
 
 
 def ap07_record_elements() -> dict[str, str]:
-    """The `RC-*` rows this stage implements, from frozen AP-07 §14's record table."""
+    """The `RC-*` rows implemented so far, from frozen AP-07 §3.2's record table."""
+    wanted = (*ST02_AP07_RECORD_ELEMENTS, *ST03_AP07_RECORD_ELEMENTS)
     found: dict[str, str] = {}
     for line in verified_text(AP07_PATH, AP07_SHA256).splitlines():
         matched = AP07_RECORD_ROW.match(line)
-        if matched is not None and matched.group(1) in ST02_AP07_RECORD_ELEMENTS:
+        if matched is not None and matched.group(1) in wanted:
             if matched.group(1) in found:
                 raise FrozenSourceError(f"duplicate record row in frozen AP-07: {matched.group(1)}")
             columns = [column.strip() for column in matched.group(2).split("|")]
             found[matched.group(1)] = " / ".join(column for column in columns if column)
-    missing = set(ST02_AP07_RECORD_ELEMENTS) - set(found)
+    missing = set(wanted) - set(found)
     if missing:
         raise FrozenSourceError(f"AP-07 record rows not found: {sorted(missing)}")
-    return {element: found[element] for element in ST02_AP07_RECORD_ELEMENTS}
+    return {element: found[element] for element in sorted(set(wanted), key=_rc_number)}
+
+
+def _rc_number(element: str) -> int:
+    return int(element.split("-")[1])
+
+
+def _amendment_rows(path: Path, digest: str, wanted: tuple[str, ...]) -> dict[str, str]:
+    found: dict[str, str] = {}
+    for line in verified_text(path, digest).splitlines():
+        matched = AMENDMENT_ROW.match(line)
+        if matched is not None and matched.group(1) in wanted:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate row in {path.name}: {matched.group(1)}")
+            columns = [column.strip() for column in matched.group(2).split("|")]
+            found[matched.group(1)] = " / ".join(column for column in columns if column)
+    missing = set(wanted) - set(found)
+    if missing:
+        raise FrozenSourceError(f"rows not found in {path.name}: {sorted(missing)}")
+    return {element: found[element] for element in wanted}
+
+
+def st03_amendment_elements() -> dict[str, str]:
+    """`IV11-*` and `AP11-I64`…`AP11-I71`, from the accepted ST-03 amendment."""
+    return _amendment_rows(AP11_ST03_PATH, AP11_ST03_SHA256, ST03_AMENDMENT_ELEMENTS)
+
+
+def st03_followon_elements() -> dict[str, str]:
+    """`AP11-I73`, from the accepted ST-03 follow-on amendment."""
+    return _amendment_rows(
+        AP11_ST03_FOLLOWON_PATH, AP11_ST03_FOLLOWON_SHA256, ST03_FOLLOWON_ELEMENTS
+    )
+
+
+def placement_elements() -> dict[str, str]:
+    """`PB-2`(i) … (v), each clause split out of frozen AP-10's `PB-2` row verbatim."""
+    row = next(
+        (
+            line
+            for line in verified_text(AP10_PATH, AP10_SHA256).splitlines()
+            if line.startswith("| PB-2 |")
+        ),
+        None,
+    )
+    if row is None:
+        raise FrozenSourceError("AP-10 PB-2 row not found")
+    clauses = re.split(r"\*\((i|ii|iii|iv|v)\)\*", row)
+    labels, texts = clauses[1::2], clauses[2::2]
+    if labels != ["i", "ii", "iii", "iv", "v"]:
+        raise FrozenSourceError(f"AP-10 PB-2 clauses not as frozen: {labels}")
+    return {f"PB-2({label})": text.strip(" ;|") for label, text in zip(labels, texts, strict=True)}
 
 
 def ap11_elements() -> dict[str, str]:
@@ -305,6 +393,76 @@ parsed from the frozen artifacts. (`ST02-A4` is not a label: the contract's four
 acceptance-side obligation, reused primitives verified rather than assumed, is the
 frozen row `SD11-15` itself.)"""
 
+ST03_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST03-D1": "Deliverable: create-only write surface for every record class RC-10...RC-41.",
+    "ST03-D2": "Deliverable: the SRB11-8 uniqueness constraints — envelope reuse and a "
+    "second boundary per root inexpressible.",
+    "ST03-D3": "Deliverable: native referential integrity, and the instance-identity "
+    "existence rule (SRB11-10).",
+    "ST03-D4": "Deliverable: atomic coupled-create capability (SRB11-11).",
+    "ST03-D5": "Deliverable: the frozen store pattern — WAL, synchronous=FULL, foreign keys, "
+    "bounded busy_timeout, STRICT tables (EB-13).",
+    "ST03-D6": "Deliverable: the IV11-* vocabularies and the section 5.3 identity types.",
+    "ST03-T1": "Test: each record class created once.",
+    "ST03-T2": "Test: coupled unit visible whole or not at all.",
+    "ST03-T3": "Test: every reference resolves.",
+    "ST03-T4": "Test: write-once classes reject a second write.",
+    "ST03-T5": "Test: append-only classes accept only new rows naming a predecessor.",
+    "ST03-T6": "Test: every IV11-* value set accepts exactly its frozen members and refuses "
+    "any other value.",
+    "ST03-T7": "Test: every visible record under one identity surfaced individually (NP-13).",
+    "ST03-N1": "Negative: no UPDATE or DELETE reachable for any class (PV11-1).",
+    "ST03-N2": "Negative: no GP-AUTO write path into any ingest-only class (SRB11-20).",
+    "ST03-N3": "Negative: a dangling or mismatched reference is refused.",
+    "ST03-N4": "Negative: every SRB11-8 forbidden duplicate is inexpressible.",
+    "ST03-N5": "Negative: an older, newer or altered schema is refused, never migrated or "
+    "partially read (section 8).",
+    "ST03-N6": "Negative: forbidden fields (RC-50...RC-61) and the ST-01 derived fields "
+    "absent; an unreadable record surfaced, never dropped (VM-6).",
+    "ST03-N7": "Negative: no guard or transition logic over any IV11-* value, structurally; "
+    "no second encoding of any section 5.2 concept.",
+    "ST03-R1": "Restart/persistence: crash consistency at the coupled-create window, "
+    "Class A (CW-2); records and identities survive reopen.",
+    "ST03-P1": "Placement: verified by location, relying on no exclude, ignore rule, "
+    "untrackedness or permission (PB-8).",
+    "ST03-P2": "Placement: no default location; the store writes only where it is placed "
+    "(SRB11-26).",
+    "ST03-G1": "Static gate: decision layer imports no engine (EB-6); GP-AUTO gates extended "
+    "to every new module (SD11-12b).",
+    "ST03-A1": "Acceptance: no record class invented and none omitted.",
+    "ST03-A2": "Acceptance: stale-schema refusal is ST-03's deliverable (SRB11-17).",
+    "ST03-RR1": "Root resolution: RC-14 is the A1 occurrence; an open resolution is a "
+    "complete stored state (RO7A-1, RO7A-9, SRF11-1).",
+    "ST03-RR2": "Root resolution: the A2 entry carries the resolved-root instance (RO7A-3).",
+    "ST03-RR3": "Root resolution: MC-17(ii) on the instance identity alone.",
+    "ST03-RR4": "Root resolution: A3 and A4 bind their Refusal / AuthorityAmbiguity by "
+    "reference, created in the same unit (RO7A-4).",
+    "ST03-RR5": "Root resolution: bindings structurally absent where they do not belong (RO7A-5).",
+    "ST03-RR6": "Root resolution: reconstruction from the chain alone after restart (RB-1).",
+    "ST03-M1": "Mutation: write-class enforcement, per mutant, killing test named.",
+    "ST03-M2": "Mutation: referential-integrity enforcement, per mutant.",
+    "ST03-M3": "Mutation: stale-schema refusal, per mutant.",
+    "ST03-M4": "Mutation: the frozen keys and the root-resolution bindings, per mutant.",
+}
+"""Labels for `GP-AUTO-ST-03`'s own contract rows (AP-11 §16 as replaced by the ST-03
+amendment §11.1 and the follow-on §3) — as the ST-01 and ST-02 labels, **not** a second
+normative inventory: the normative rows are parsed from the frozen artifacts above."""
+
+OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
+    "ID-3": "GP-AUTO-ST-03",
+    "ID-4": "GP-AUTO-ST-03",
+    "ID-5": "GP-AUTO-ST-03",
+    "ID-7": "GP-AUTO-ST-03",
+    "ID-8": "GP-AUTO-ST-03",
+    "ID-14": "GP-AUTO-ST-03",
+    "EQ-6": "GP-AUTO-ST-06",
+    "EQ-7": "GP-AUTO-ST-03",
+    "EQ-9": "GP-AUTO-ST-03",
+    "RC-21": "GP-AUTO-ST-03",
+}
+"""The ST-02 rows owed to a later stage when ST-02 was accepted — a historical record, so
+a row owed then and discharged since can be checked against the stage that owed it."""
+
 OWED_BY: dict[str, tuple[str, str]] = {
     "AP03-I01": (
         "GP-AUTO-ST-06",
@@ -329,11 +487,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "GP-AUTO-ST-07",
         "'Never moves' is a property of the observation and its store, not of a type.",
     ),
-    "AP03-I10": (
-        "GP-AUTO-ST-03",
-        "Attribution surviving consumption is a persistence property. The dependent "
-        "identity already makes attribution structural.",
-    ),
     "AP03-I11": (
         "GP-AUTO-ST-08",
         "Non-convertibility is enforced where state is classified, not where it is typed.",
@@ -356,14 +509,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "GP-AUTO-ST-06",
         "A statement about what a derived envelope may grant a reviewing role.",
     ),
-    "AP03-I19": (
-        "GP-AUTO-ST-03",
-        "The two-level model, the immutability of provenance and the admissibility "
-        "relation's exclusion of worker-authored productions all hold and are tested "
-        "here. The clause that does not is persistence: storing, indexing, surfacing, "
-        "mirroring and **deduplicating by content** must confer no standing and must "
-        "never merge two productions, and there is no store yet for that to be true of.",
-    ),
     "AP03-I24": (
         "GP-AUTO-ST-09",
         "Closure being per finding and bound to one closure activation is structural and "
@@ -371,7 +516,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "scope is a subset of the frozen set's membership — is freeze-and-closure "
         "behaviour, which ST-09 owns.",
     ),
-    "AP03-I27": ("GP-AUTO-ST-03", "A statement about a store; this stage has none."),
     "AP03-I28": (
         "GP-AUTO-ST-08",
         "The five facts are five distinct non-convertible types, the case markers are "
@@ -386,10 +530,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "That no envelope is produced for a non-activated role is a derivation outcome. "
         "Recording the absence as correct is already expressible and is tested here.",
     ),
-    "AP03-I35": (
-        "GP-AUTO-ST-03",
-        "Instances surviving every disposition is a persistence and retrieval property.",
-    ),
     "AP03-I36": (
         "GP-AUTO-ST-09",
         "'Zero or one set per discovery activation' is freeze behaviour. The three-valued "
@@ -397,39 +537,24 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "expressible and is tested here.",
     ),
     # --- GP-AUTO-ST-02's AP-07 rows whose remaining clause needs a later operation ---
-    "ID-3": (
-        "GP-AUTO-ST-03",
-        "The shape of a minted identifier — no time, sequence, counter or embedded "
-        "ordering — is a property of generation, and nothing mints before the store's "
-        "create-only surface. The 'no content derivation' clause holds now: no GP-AUTO "
-        "code derives any identity but the two content identities.",
+    # (ID-3/4/5/7/8/14, EQ-7, EQ-9 and RC-21 were owed to ST-03 and are discharged there.)
+    # --- GP-AUTO-ST-03: placement boundaries no stage has yet instantiated (SRB11-29) ---
+    "PB-2(ii)": (
+        "GP-AUTO-ST-17",
+        "The workspace boundary E-10 and every worker's mutation reach are extents the "
+        "implemented runtime has not instantiated; ST-17's Tests cell owes the check by "
+        "location against them (SRB11-29, AP11-I71). Never N/A.",
     ),
-    "ID-4": (
-        "GP-AUTO-ST-03",
-        "Generation relying on unpredictability, and syntactic-only validation, are "
-        "properties of minting, which first exists at the store's create-only surface.",
+    "PB-2(iii)": (
+        "GP-AUTO-ST-17",
+        "Every reviewing role's read boundary is not instantiated before ST-17 (SRB11-29, "
+        "AP11-I71). Never N/A.",
     ),
-    "ID-5": (
-        "GP-AUTO-ST-03",
-        "Stated of minted identifiers ('stable, opaque, per-occurrence ... and nothing "
-        "more'); no identifier is minted before the store. ST-02 makes no uniqueness, "
-        "ordering, freshness or authentication claim of any identity.",
-    ),
-    "ID-7": (
-        "GP-AUTO-ST-03",
-        "Stability across store re-read and store version change is a store property. "
-        "Stability across process restart of the content-identity derivation is shown "
-        "here (cross-process, differing hash seeds).",
-    ),
-    "ID-8": (
-        "GP-AUTO-ST-03",
-        "'No write surface expresses re-parenting' is a property of a write surface; the "
-        "dependent-identity pair structure is ST-01's and is unchanged.",
-    ),
-    "ID-14": (
-        "GP-AUTO-ST-03",
-        "Byte sharing without merging productions is a content-addressed storage rule. "
-        "Here: identical text is one content identity carrying no provenance.",
+    "PB-2(v)": (
+        "GP-AUTO-ST-17",
+        "The bounded non-project execution side-effect area (XA-1) is not instantiated "
+        "before ST-17 (SRB11-29, AP11-I71). AP-10's PB-2(v)-redundancy follow-up is carried "
+        "unfixed (SRB11-30). Never N/A.",
     ),
     "EQ-6": (
         "GP-AUTO-ST-06",
@@ -437,28 +562,8 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "of the rule — record an AuthorityAmbiguity naming the identity and disagreeing "
         "classes, constitute no instance, do not begin the stage — is root resolution.",
     ),
-    "EQ-7": (
-        "GP-AUTO-ST-03",
-        "The comparison produces no identity, key, digest or ranking, and exposes no "
-        "normal form — shown here. 'Never stored as a name, a dedup key or a uniqueness "
-        "constraint' binds the store; 'not consulted by any guard' binds later guards.",
-    ),
-    "RC-21": (
-        "GP-AUTO-ST-03",
-        "The content clause is discharged here and is what the byte-exact preimage "
-        "implements: artifact content is *the bytes as produced*, any byte string, "
-        "recovered exactly. What remains is the row's storage half — the stored "
-        "canonical preimage as the single authoritative representation of a **row**, "
-        "under write class W1 — and there is no store yet for that to be true of.",
-    ),
-    "EQ-9": (
-        "GP-AUTO-ST-03",
-        "Record-format versions (VM-1) first exist with the record classes. The only "
-        "format tag today is the content-preimage scheme, and a preimage under any tag "
-        "the running definition does not cover is refused.",
-    ),
 }
-"""For every AP-03 element this stage does not discharge: its first executable stage.
+"""For every element not yet discharged: its first executable stage.
 
 `EV11-6`: an owed-but-not-yet-executable obligation is recorded as **owed by its first
 executable stage** rather than as absent or waived. The stages are AP-11 §16's and §17's;
@@ -479,6 +584,10 @@ def inventory() -> dict[str, str]:
         **ap07_record_elements(),
         **ap11_elements(),
         **ST02_CONTRACT_OBLIGATIONS,
+        **st03_amendment_elements(),
+        **st03_followon_elements(),
+        **placement_elements(),
+        **ST03_CONTRACT_OBLIGATIONS,
     }
 
 

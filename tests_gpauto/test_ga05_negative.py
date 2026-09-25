@@ -37,6 +37,7 @@ from gpauto.authorization import (
     SameIdentityConflictForm,
 )
 from gpauto.bounds import AuthorityBounds
+from gpauto.coordination_records import SessionAnnotation, WorkerActivationRecord
 from gpauto.envelope import AuthorityEnvelope
 from gpauto.governance import (
     AuthorizingDecision,
@@ -60,8 +61,13 @@ from introspect import annotation_atoms, fields_of, model_classes, reachable_mod
 
 PROVIDER_WORDS = ("provider", "vendor", "model_name", "session")
 
-PROVIDER_BEARING_CLASSES = frozenset({ProviderAssignment, WorkerActivation})
-"""The only two places AP-03 §14 permits a provider to appear at all."""
+PROVIDER_BEARING_CLASSES = frozenset(
+    {ProviderAssignment, WorkerActivation, WorkerActivationRecord, SessionAnnotation}
+)
+"""The only places AP-03 §14 permits a provider to appear at all: the activation and its
+annotation — and, from `GP-AUTO-ST-03`, the activation's **stored record** (`RC-19`) with
+its session annotation, which AP-07 `MH-11`/`MH-12` place on that record and nowhere else
+(`RS11-19`)."""
 
 
 @pytest.mark.parametrize("cls", model_classes(), ids=lambda c: c.__qualname__)

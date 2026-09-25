@@ -366,8 +366,12 @@ def test_st02_declares_exactly_its_operations_and_none_selects_or_orders() -> No
     comparison takes exactly two records and returns an outcome — never one of its
     inputs, and never a key, digest or normal form (`EQ-7`, `EQ-10`).
     """
+    import test_ga06_structural as structural
+
     declared: dict[str, list[str]] = {}
     for path in source_files():
+        if path.name in structural.ST03_OPERATION_MODULES:
+            continue  # GP-AUTO-ST-03's own operations, pinned by its own gate test
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Lambda):
                 declared.setdefault(path.name, []).append("<lambda>")

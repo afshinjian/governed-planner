@@ -208,7 +208,8 @@ def test_a_discharged_row_names_this_stage_and_an_undischarged_row_names_a_later
 
 
 DEFERRED_CLAUSE_ELEMENTS = {
-    "AP03-I19": "GP-AUTO-ST-03",
+    # AP03-I19 was owed to GP-AUTO-ST-03 here; ST-03 has run and discharged it with its
+    # own evidence, so it is no longer a deferred-clause element (test_ga17).
     "AP03-I24": "GP-AUTO-ST-09",
     "AP03-I28": "GP-AUTO-ST-08",
 }
@@ -342,10 +343,17 @@ def test_supporting_evidence_is_never_counted_as_a_discharge() -> None:
     """
     supported = set(traceability.declared_support())
     assert supported
+    evidence = traceability.declared_evidence()
     rows = {row.element: row for row in traceability.matrix(synthetic_results())}
-    for element in supported:
+    for element in supported - set(evidence):
         assert rows[element].disposition == UNDISCHARGED, element
         assert "structure verified here:" in rows[element].detail, element
+    # An element a stage supported and a later stage then discharged is discharged by
+    # the later stage's **traces** evidence alone; the support is never among it.
+    for element in supported & set(evidence):
+        assert rows[element].disposition == DISCHARGED, element
+        support = set(traceability.declared_support()[element])
+        assert not support & set(rows[element].detail.split("; ")), element
 
 
 @pytest.mark.traces("ST01-A6")

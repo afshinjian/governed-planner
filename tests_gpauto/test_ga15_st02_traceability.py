@@ -118,7 +118,10 @@ def test_every_st02_row_is_discharged_here_or_owed_by_a_later_stage() -> None:
     for element in st02_rows:
         row = rows[element]
         if row.disposition == DISCHARGED:
-            assert row.implementing == GPAUTO_STAGE, element
+            # Discharged by ST-02, or — for a row ST-02 recorded as owed at its
+            # acceptance — by exactly the stage that owed it, once that stage has run.
+            owed = traceability.OWED_AT_ST02_ACCEPTANCE.get(element, GPAUTO_STAGE)
+            assert row.implementing == owed, element
         else:
             assert row.disposition == UNDISCHARGED, element
             assert element in OWED_BY, element
@@ -141,6 +144,12 @@ def test_st02s_own_contract_rows_all_carry_discharging_evidence() -> None:
 def test_every_owed_st02_row_records_what_holds_here_as_support() -> None:
     """An owed row does not hide what ST-02 did verify: the support is recorded."""
     rows = _rows()
+    support = traceability.declared_support()
     for element in ("ID-3", "ID-5", "ID-7", "ID-14", "EQ-6", "EQ-7"):
-        assert rows[element].disposition == UNDISCHARGED, element
-        assert "structure verified here:" in rows[element].detail, element
+        assert support[element], element
+        if element in traceability.OWED_BY:
+            assert rows[element].disposition == UNDISCHARGED, element
+            assert "structure verified here:" in rows[element].detail, element
+        else:  # owed to ST-03 at ST-02's acceptance, and discharged there since
+            assert rows[element].disposition == DISCHARGED, element
+            assert rows[element].implementing == traceability.OWED_AT_ST02_ACCEPTANCE[element]

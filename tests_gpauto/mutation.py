@@ -1,4 +1,4 @@
-"""`GP-AUTO-ST-02`'s mutation obligations: per guard, per mutant, killing test named.
+"""GP-AUTO's mutation obligations: per guard, per mutant, killing test named.
 
 Design basis: AP-11 §8 (`MU11-1`…`MU11-8`), §13 (`EV11-1`(c), `EV11-3`, `EV11-6`),
 §16 (`GP-AUTO-ST-02` mutation row), §18 (`PG11-2`).
@@ -11,6 +11,22 @@ Design basis: AP-11 §8 (`MU11-1`…`MU11-8`), §13 (`EV11-1`(c), `EV11-3`, `EV1
 * `ga_codec_decode` — fixed on each decode line of `src/gpauto/codec.py`; a
   **model-enforced** guard; frozen guarantees `DC-1`, `DC-3` (which carries `VM-3`), `VM-11`,
   `ID-2`, `EQ-2`.
+
+**From `GP-AUTO-ST-03`, four more guards**, each named by that stage's frozen contract
+(*"write-class enforcement; referential-integrity enforcement; stale-schema refusal"*) or
+by the root-resolution and key constraints its amendments fix, and each a **line** guard:
+
+* `ga_store_write_class` — `src/gpauto/store_schema.py`: the create-only triggers, and
+  the write surface's restriction to the coordination domain; guarantees `AP11-I70`,
+  `ID-8`, `AP03-I27`.
+* `ga_store_referential_integrity` — `src/gpauto/store_schema.py`: the foreign keys, the
+  instance-existence triggers, the classification-context pair and the declared
+  references; guarantees `AP03-I35`, `AP03-I10`, `RC-24`, `RC-25`.
+* `ga_store_keys` — `src/gpauto/store_schema.py`: the `SRB11-8` keys, the `RO7A-5`
+  bindings and `RC-36`'s whole-identity key; guarantees `AP11-I73`, `RC-14`, `RC-17`,
+  `RC-18`, `RC-19`, `RC-26`, `RC-33`, `RC-34`, `RC-36`, `RC-37`, `RC-39`, `ID-8`.
+* `ga_store_stale_schema` — `src/gpauto/store.py`: the version and structure refusals;
+  guarantees `AP11-I69`, `EQ-9`.
 
 **No harness is installed** (`PG11-2` is undischarged, and a tool install would be a
 halt). This module is test code that performs exactly the two kinds of mutation the
@@ -65,7 +81,7 @@ if __package__ in (None, ""):  # pragma: no cover - only when run as a script
 import pytest
 from pydantic import BaseModel, ConfigDict, create_model
 
-from gpauto import codec, equivalence
+from gpauto import codec, equivalence, store, store_schema
 from gpauto.authorization import AuthorizationRecord
 from gpauto.preimage import ArtifactContentPreimage, StageContractContent, StageContractPreimage
 
@@ -97,6 +113,43 @@ GUARDS: Final[dict[str, Guard]] = {
         module=codec,
         kind="schema",
         guarantees=("DC-1", "DC-3", "VM-11", "ID-2", "EQ-2"),
+    ),
+    "ga_store_write_class": Guard(
+        identifier="ga_store_write_class",
+        module=store_schema,
+        kind="line",
+        guarantees=("AP11-I70", "ID-8", "AP03-I27"),
+    ),
+    "ga_store_referential_integrity": Guard(
+        identifier="ga_store_referential_integrity",
+        module=store_schema,
+        kind="line",
+        guarantees=("AP03-I35", "AP03-I10", "RC-24", "RC-25"),
+    ),
+    "ga_store_keys": Guard(
+        identifier="ga_store_keys",
+        module=store_schema,
+        kind="line",
+        guarantees=(
+            "AP11-I73",
+            "RC-14",
+            "RC-17",
+            "RC-18",
+            "RC-19",
+            "RC-26",
+            "RC-33",
+            "RC-34",
+            "RC-36",
+            "RC-37",
+            "RC-39",
+            "ID-8",
+        ),  # fmt: skip
+    ),
+    "ga_store_stale_schema": Guard(
+        identifier="ga_store_stale_schema",
+        module=store,
+        kind="line",
+        guarantees=("AP11-I69", "EQ-9"),
     ),
 }
 
@@ -167,6 +220,236 @@ def _artifact_envelope_accepting_any_class() -> type[BaseModel]:
 def _artifact_envelope_accepting_any_encoding() -> type[BaseModel]:
     return create_model("Mutant", __base__=ArtifactContentPreimage, content_encoding=(str, ...))
 
+
+STORE_TESTS = "tests_gpauto/test_ga17_st03_store.py"
+RESOLUTION_TESTS = "tests_gpauto/test_ga18_st03_root_resolution.py"
+KEYS_KILLER = f"{STORE_TESTS}::test_the_frozen_keys_make_each_forbidden_duplicate_inexpressible"
+MULTIPLICITY_KILLER = (
+    f"{STORE_TESTS}::test_two_outcomes_of_one_stage_coexist_and_each_is_referenced_distinctly"
+)
+CREATE_ONLY_KILLER = (
+    f"{STORE_TESTS}::"
+    "test_no_update_delete_or_replace_reaches_any_table_through_a_configured_connection"
+)
+
+
+def _store_mutant(
+    guard: str, identifier: str, description: str, original: str, replacement: str, killer: str
+) -> LineMutant:
+    return LineMutant(guard, identifier, description, original, replacement, killer)
+
+
+ST03_MUTANTS: Final[tuple[LineMutant, ...]] = (
+    _store_mutant(
+        "ga_store_write_class",
+        "WC-01-update-trigger-neutered",
+        "the no-update trigger selects its message instead of raising",
+        "BEGIN SELECT RAISE(ABORT, 'GPAUTO_NO_UPDATE: {name}'); END",
+        "BEGIN SELECT ('GPAUTO_NO_UPDATE: {name}'); END",
+        CREATE_ONLY_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_write_class",
+        "WC-02-delete-trigger-neutered",
+        "the no-delete trigger selects its message instead of raising",
+        "BEGIN SELECT RAISE(ABORT, 'GPAUTO_NO_DELETE: {name}'); END",
+        "BEGIN SELECT ('GPAUTO_NO_DELETE: {name}'); END",
+        CREATE_ONLY_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_write_class",
+        "WC-03-ingest-writable",
+        "the write surface admits every domain, the ingest domain included",
+        "if layout.spec.domain is Domain.COORDINATION",
+        "if layout.spec.domain in Domain",
+        f"{STORE_TESTS}::test_an_ingest_record_meets_no_write_operation",
+    ),
+    _store_mutant(
+        "ga_store_referential_integrity",
+        "RI-01-foreign-keys-dropped",
+        "no FOREIGN KEY clause is emitted for any table",
+        "for foreign in table_references(layout, catalogue)[0]:",
+        "for foreign in table_references(layout, catalogue)[0][:0]:",
+        f"{STORE_TESTS}::test_a_dangling_reference_is_refused_and_nothing_is_committed",
+    ),
+    _store_mutant(
+        "ga_store_referential_integrity",
+        "RI-02-instance-triggers-dropped",
+        "no instance-existence trigger is emitted",
+        "for reference in instances:",
+        "for reference in instances[:0]:",
+        f"{STORE_TESTS}::test_an_instance_reference_requires_an_ingested_record_bearing_it",
+    ),
+    _store_mutant(
+        "ga_store_referential_integrity",
+        "RI-03-context-pair-split",
+        "a classification context is keyed as two independent references, not one pair",
+        "if node.cls is ClassificationContext:",
+        "if node.cls is None:",
+        f"{STORE_TESTS}::test_a_classification_context_must_name_a_boundary_fixed_for_its_own_root",
+    ),
+    _store_mutant(
+        "ga_store_referential_integrity",
+        "RI-04-declared-references-dropped",
+        "the references a table declares — finding membership, obligation membership — vanish",
+        "for reference in layout.spec.references:",
+        "for reference in layout.spec.references[:0]:",
+        f"{STORE_TESTS}::test_a_finding_cannot_exist_outside_its_frozen_set",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-01-epoch-anchor-weakened",
+        "MC-17(ii) keyed on (instance, resolution) instead of the instance alone",
+        '("result__ResolvedRootResult__resolved_root",)',
+        '("result__ResolvedRootResult__resolved_root", "identity__resolution")',
+        f"{RESOLUTION_TESTS}::test_at_most_one_completed_resolution_names_an_instance",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-02-a2-binding-unfixed",
+        "the A2 edge no longer fixes the resolved-root binding",
+        "\"(edge = 'A2') = (result__kind = 'ResolvedRootResult')\"",
+        "\"1 OR (result__kind = 'ResolvedRootResult')\"",
+        f"{RESOLUTION_TESTS}::test_a_result_binding_is_admitted_only_on_its_own_edge",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-03-a3-binding-unfixed",
+        "the A3 edge no longer fixes the refusal binding",
+        "\"(edge = 'A3') = (result__kind = 'RefusalResult')\"",
+        "\"1 OR (result__kind = 'RefusalResult')\"",
+        f"{RESOLUTION_TESTS}::test_a_result_binding_is_admitted_only_on_its_own_edge",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-04-a4-binding-unfixed",
+        "the A4 edge no longer fixes the ambiguity binding",
+        "\"(edge = 'A4') = (result__kind = 'AmbiguityResult')\"",
+        "\"1 OR (result__kind = 'AmbiguityResult')\"",
+        f"{RESOLUTION_TESTS}::test_a_result_binding_is_admitted_only_on_its_own_edge",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-05-chain-may-fork",
+        "MC-2 widened with the entry's own discriminator, so one predecessor has two successors",
+        'Unique((subject, "predecessor__Present__value__discriminator")),',
+        'Unique((subject, "predecessor__Present__value__discriminator", '
+        '"identity__discriminator")),',
+        f"{STORE_TESTS}::test_append_only_classes_accept_only_new_rows_naming_a_predecessor",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-06-two-first-entries",
+        "a chain's affirmatively-first entry is no longer unique per subject",
+        "Unique((subject,), \"predecessor__kind = 'KnownAbsent'\"),",
+        'Unique((subject, "identity__discriminator"), "predecessor__kind = \'KnownAbsent\'"),',
+        f"{STORE_TESTS}::test_append_only_classes_accept_only_new_rows_naming_a_predecessor",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-07-second-boundary-per-root",
+        "RS7-1: the unique root key on RC-17 removed",
+        'unique=(Unique(("resolved_root",)),),  # guard:ga_store_keys (RS7-1)',
+        "unique=(),  # guard:ga_store_keys (RS7-1)",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-08-envelope-reuse",
+        "CO-7: the unique envelope key on RC-19 removed",
+        'unique=(Unique(("envelope",)),),',
+        "unique=(),",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-09-second-set-per-epoch",
+        "FP-17: the unique root key on RC-26 removed",
+        'unique=(Unique(("resolved_root",)),),  # guard:ga_store_keys (FP-17)',
+        "unique=(),  # guard:ga_store_keys (FP-17)",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-10-second-dispatch",
+        "MH-7: the unique envelope key on the dispatch record removed",
+        'unique=(Unique(("correlation__envelope",)),),',
+        "unique=(),",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-11-second-ingestion",
+        "MH-13: the unique activation key on the ingestion record removed",
+        'unique=(Unique(("activation",)),),',
+        "unique=(),",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-12-derivation-key-widened",
+        "MC-15 widened with the envelope's own identity",
+        '"envelope__role",  # guard:ga_store_keys',
+        '"envelope__role", "envelope__identity",  # guard:ga_store_keys',
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-13-second-cycle-occurrence",
+        "MC-16: the (predecessor entry, S6) key removed",
+        "unique=(Unique(CYCLE_OCCURRENCE_KEY),),",
+        "unique=(),",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-14-second-adoption",
+        "MC-2: adoption no longer unique per activation",
+        "\"determination__kind = 'AdoptionDetermination'\",",
+        "\"determination__kind = 'NoSuchVariant'\",",
+        KEYS_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-15-second-first-attempt",
+        "MC-17(i): the first attempt's anchor no longer unique",
+        "\"predecessor_terminal_entry__kind = 'KnownAbsent'\",",
+        "\"predecessor_terminal_entry__kind = 'NoSuchVariant'\",",
+        f"{RESOLUTION_TESTS}::test_one_attempt_anchor_admits_one_occurrence",
+    ),
+    _store_mutant(
+        "ga_store_keys",
+        "KY-16-outcome-unique-per-stage",
+        "ID-8 (GA03-R01): RC-36 reverted to one outcome per stage — parent stage alone unique",
+        '"identity",  # guard:ga_store_keys (ID-8)',
+        '"identity", unique=(Unique(("identity__parent_stage",)),),  # guard:ga_store_keys (ID-8)',
+        MULTIPLICITY_KILLER,
+    ),
+    _store_mutant(
+        "ga_store_stale_schema",
+        "SS-01-version-unchecked",
+        "the storage version is not compared",
+        "if version != STORAGE_VERSION:",
+        "if False:",
+        f"{STORE_TESTS}::test_a_store_under_another_storage_version_is_refused_and_left_untouched",
+    ),
+    _store_mutant(
+        "ga_store_stale_schema",
+        "SS-02-structure-unchecked",
+        "the schema structure is not compared",
+        "if actual != expected:",
+        "if False:",
+        f"{STORE_TESTS}::test_a_store_under_an_altered_structure_is_refused_and_left_untouched",
+    ),
+    _store_mutant(
+        "ga_store_stale_schema",
+        "SS-03-refusal-ignored",
+        "an incompatibility is found and the store is opened anyway",
+        "if reason:",
+        "if False:",
+        f"{STORE_TESTS}::test_a_store_under_another_storage_version_is_refused_and_left_untouched",
+    ),
+)
 
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
@@ -281,6 +564,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
         build=_artifact_envelope_accepting_any_encoding,
         killer=f"{CODEC_TESTS}::test_an_artifact_preimage_under_another_content_encoding_is_refused",
     ),
+    *ST03_MUTANTS,
 )
 
 
@@ -334,8 +618,15 @@ def _line_substituted(
 ) -> Iterator[None]:
     module = GUARDS[mutant.guard].module
     code = compile(mutated_source(mutant, control=control), f"<{mutant.identifier}>", "exec")
-    scratch: dict[str, object] = {"__name__": f"{module.__name__}__mutant"}
-    exec(code, scratch)
+    # The mutated source runs as a module of its own, registered for the exec only: a
+    # `@dataclass` in the guarded module resolves its annotations through `sys.modules`.
+    scratch_module = types.ModuleType(f"{module.__name__}__mutant")
+    sys.modules[scratch_module.__name__] = scratch_module
+    try:
+        exec(code, scratch_module.__dict__)
+    finally:
+        sys.modules.pop(scratch_module.__name__, None)
+    scratch = scratch_module.__dict__
     for name, original in vars(module).items():
         if inspect.isfunction(original) and original.__module__ == module.__name__:
             compiled = scratch[name]
@@ -403,7 +694,7 @@ def run(mutant: Mutant, *, control: bool = False) -> str:
 
 
 def main() -> int:
-    print("GP-AUTO-ST-02 mutation obligations (MU11-7): per guard, per mutant.")
+    print("GP-AUTO mutation obligations (MU11-7): per guard, per mutant.")
     print("No aggregate score, percentage or completeness claim is made (MU11-2a).\n")
     tags = guard_tags()
     status = 0
