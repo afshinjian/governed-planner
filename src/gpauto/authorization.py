@@ -119,9 +119,7 @@ class SuspendedDisposition(DomainValue):
     """
 
     disposition: Literal[AuthorizationDisposition.SUSPENDED] = AuthorizationDisposition.SUSPENDED
-    established_by_event: (
-        RefusalId | AuthorityAmbiguityId | EnvelopeViolationId | UnaccountedMutationId
-    )
+    established_by_event: RefusalId | EnvelopeViolationId | UnaccountedMutationId
 
 
 type LivenessFact = (

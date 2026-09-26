@@ -42,9 +42,9 @@ from gpauto.envelope import AuthorityEnvelope
 from gpauto.governance import (
     AuthorizingDecision,
     EnvelopeViolation,
-    NonAuthorizingDecision,
     OwnerDecision,
     Refusal,
+    StageOutcomeDecision,
 )
 from gpauto.identity import GovernedStageId, OwnerAuthorizationId
 from gpauto.review import Finding, FrozenFindingSet
@@ -320,8 +320,7 @@ def test_the_json_decode_path_refuses_a_worker_authored_objective_reference() ->
     """
     admissible = ObjectiveProductionReference(production=fixtures.artifact_production())
     assert (
-        ObjectiveProductionReference.model_validate_json(admissible.model_dump_json())
-        == admissible
+        ObjectiveProductionReference.model_validate_json(admissible.model_dump_json()) == admissible
     )
 
     smuggled = admissible.model_dump_json().replace("OBJECTIVE", "WORKER_AUTHORED")
@@ -410,8 +409,11 @@ def test_a_stage_outcome_acceptance_cannot_produce_an_authorization() -> None:
     model can hold.
     """
     with pytest.raises(ValidationError) as caught:
-        NonAuthorizingDecision(
-            kind=OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE,
+        StageOutcomeDecision(
+            kind=OwnerDecisionKind.STAGE_OUTCOME,
+            context=fixtures.classification_context(),
+            outcome=fixtures.stage_outcome().disposition,
+            corrects=KnownAbsent(basis="original"),
             produced_authorization=Present[OwnerAuthorizationId](  # type: ignore[arg-type]
                 value=fixtures.AUTHORIZATION_ID
             ),
@@ -424,10 +426,9 @@ def test_acceptance_cannot_be_recorded_as_an_authorizing_act() -> None:
     """The other direction: the authorizing form does not admit the acceptance kind."""
     with pytest.raises(ValidationError):
         AuthorizingDecision(
-            kind=OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE,  # type: ignore[arg-type]
-            produced_authorization=Present[OwnerAuthorizationId](
-                value=fixtures.AUTHORIZATION_ID
-            ),
+            kind=OwnerDecisionKind.STAGE_OUTCOME,  # type: ignore[arg-type]
+            corrects=KnownAbsent(basis="original"),
+            produced_authorization=Present[OwnerAuthorizationId](value=fixtures.AUTHORIZATION_ID),
         )
 
 
@@ -436,7 +437,7 @@ def test_the_whole_acceptance_decision_is_refused_on_the_json_path() -> None:
     """An acceptance carrying a produced authorization does not decode either."""
     smuggled = (
         '{"identity": {"value": "d"}, "stage": {"value": "s"}, '
-        '"act": {"kind": "STAGE_OUTCOME_ACCEPTANCE", '
+        '"act": {"kind": "STAGE_OUTCOME", '
         '"produced_authorization": {"state": "PRESENT", "value": {"value": "a"}}}}'
     )
     with pytest.raises(ValidationError):
@@ -450,9 +451,11 @@ def test_every_owner_decision_kind_is_admissible_in_exactly_one_act_form() -> No
     Complete, so no OWNER act becomes unrecordable; non-overlapping, so no act can be
     recorded in the form that contradicts its row.
     """
-    from gpauto.governance import ExceptionalRecoveryDecision
+    from typing import get_args
 
-    forms = (AuthorizingDecision, NonAuthorizingDecision, ExceptionalRecoveryDecision)
+    from gpauto.governance import DecisionAct
+
+    forms = get_args(DecisionAct.__value__)
     admissible: dict[OwnerDecisionKind, int] = {kind: 0 for kind in OwnerDecisionKind}
     for form in forms:
         for atom in annotation_atoms(form.model_fields["kind"].annotation):
@@ -467,5 +470,138 @@ def test_an_authorizing_act_cannot_record_an_absent_authorization() -> None:
     with pytest.raises(ValidationError):
         AuthorizingDecision(
             kind=OwnerDecisionKind.NEXT_STAGE_AUTHORIZATION,
+            corrects=KnownAbsent(basis="original"),
             produced_authorization=KnownAbsent(basis="none"),  # type: ignore[arg-type]
         )
+
+
+@pytest.mark.traces("ST01-N7", "AP03-I25", "AP03-I34")
+@pytest.mark.traces(
+    "SC01-V1",
+    "SC01-V2",
+    "SC01-V3",
+    "SC01-V7",
+    "SC01-V8",
+    "SC01-V10",
+    "SC01-V11",
+    "SC01-V12",
+    "SC01-V13",
+    "SC01-V15",
+    "SC01-V17",
+)
+def test_st01c2_closed_forms_required_referents_and_corrections() -> None:
+    """SC01-V1..V3, V6..V8, V10..V13, V15..V17; V14 is store-enforced."""
+    import gpauto.governance as governance
+    from gpauto.identity import OwnerDecisionId, StageOutcomeId
+
+    expected = {
+        "AuthorizingDecision": set(),
+        "DisputeResolutionDecision": {"member"},
+        "ObligationExtinguishingDecision": {"obligation"},
+        "ObligationChangeDecision": {"obligation", "replacement_requirement"},
+        "RevocationDecision": {"revoked"},
+        "RefusalResolutionDecision": {"halt_occurrence"},
+        "StageOutcomeDecision": {"context", "outcome"},
+        "ExceptionalRecoveryDecision": set(),
+    }
+    for name, referents in expected.items():
+        assert hasattr(governance, name), name
+        form = getattr(governance, name)
+        fields = referents | {"kind", "produced_authorization"}
+        if name != "ObligationChangeDecision":
+            fields.add("corrects")
+        assert set(form.model_fields) == fields
+        assert all(field.is_required() for field in form.model_fields.values())
+        from typing import Literal, get_origin
+
+        assert get_origin(form.model_fields["kind"].annotation) is Literal
+        for referent in referents:
+            assert type(None) not in annotation_atoms(form.model_fields[referent].annotation)
+
+    for decision in fixtures.corrective_decisions():
+        act = decision.act
+        cls = type(act)
+        assert governance.OwnerDecision.model_validate_json(decision.model_dump_json()) == decision
+        payload = dict(act)
+        if isinstance(act.produced_authorization, KnownAbsent):
+            if cls.__name__ != "ExceptionalRecoveryDecision":
+                with pytest.raises(ValidationError):
+                    cls(
+                        **{
+                            **payload,
+                            "produced_authorization": Present(value=fixtures.AUTHORIZATION_ID),
+                        }
+                    )
+        for field in cls.model_fields:
+            omitted = {key: value for key, value in payload.items() if key != field}
+            with pytest.raises(ValidationError):
+                cls(**omitted)
+        for field in set.union(*expected.values()) | {"corrects", "timestamp", "effective"}:
+            if field not in payload:
+                with pytest.raises(ValidationError):
+                    cls(**{**payload, field: "forbidden"})
+        with pytest.raises(ValidationError):
+            act.kind = act.kind
+        if "corrects" in cls.model_fields:
+            prior = decision.model_dump_json()
+            for corrects in (
+                KnownAbsent(basis="none"),
+                Present[OwnerDecisionId](value=OwnerDecisionId(value="prior")),
+            ):
+                changed = cls(**{**dict(act), "corrects": corrects})
+                assert cls.model_validate_json(changed.model_dump_json()) == changed
+                assert decision.model_dump_json() == prior
+            for wrong in (
+                fixtures.AUTHORIZATION_ID,
+                fixtures.remediation_obligation().identity,
+                StageOutcomeId(parent_stage=fixtures.STAGE_ID, local_discriminator="x"),
+            ):
+                with pytest.raises(ValidationError):
+                    cls(**{**dict(act), "corrects": Present(value=wrong)})
+        for kind in OwnerDecisionKind:
+            if kind not in annotation_atoms(cls.model_fields["kind"].annotation):
+                with pytest.raises(ValidationError):
+                    cls(**{**dict(act), "kind": kind})
+
+
+@pytest.mark.traces("ST01-N7", "AP03-I25")
+@pytest.mark.traces("SC01-V4", "SC01-V5", "SC01-V6", "SC01-V16")
+def test_st01c2_outcomes_o6_and_lawful_suspension() -> None:
+    import gpauto.governance as governance
+    from gpauto.authorization import SuspendedDisposition
+    from gpauto.identity import (
+        AuthorityAmbiguityId,
+        EnvelopeViolationId,
+        RefusalId,
+        UnaccountedMutationId,
+    )
+    from gpauto.vocabulary import StageOutcomeDisposition
+
+    assert hasattr(governance, "ObligationChangeDecision")
+    for value in ("\0", "\0requirement", "embedded\0nul", " e\u0301 漢字\n"):
+        act = governance.ObligationChangeDecision(
+            kind=OwnerDecisionKind.OBLIGATION_CHANGE,
+            obligation=fixtures.remediation_obligation().identity,
+            replacement_requirement=value,
+            produced_authorization=KnownAbsent(basis="none"),
+        )
+        assert type(act).model_validate_json(act.model_dump_json()).replacement_requirement == value
+    with pytest.raises(ValidationError):
+        type(act)(**{**dict(act), "replacement_requirement": ""})
+    for outcome in StageOutcomeDisposition:
+        accepted = fixtures.owner_decision().act
+        assert isinstance(accepted, StageOutcomeDecision)
+        changed = type(accepted)(**{**dict(accepted), "outcome": outcome})
+        assert changed.outcome == outcome
+        with pytest.raises(ValidationError):
+            type(accepted)(
+                **{
+                    **dict(changed),
+                    "produced_authorization": Present(value=fixtures.AUTHORIZATION_ID),
+                }
+            )
+    for identity in (RefusalId, EnvelopeViolationId, UnaccountedMutationId):
+        event = identity(value="e")
+        assert SuspendedDisposition(established_by_event=event).established_by_event == event
+    with pytest.raises(ValidationError):
+        SuspendedDisposition(established_by_event=AuthorityAmbiguityId(value="e"))  # type: ignore[arg-type]

@@ -310,7 +310,7 @@ class GovernedFactKind(StrEnum):
 class OwnerDecisionKind(StrEnum):
     """The OWNER acts AP-03 §11.2 classifies.
 
-    Kinds of one `OwnerDecision` type. `STAGE_OUTCOME_ACCEPTANCE` is a kind here and
+    Kinds of one `OwnerDecision` type. `STAGE_OUTCOME` is a kind here and
     **not** a separate entity, because the distinction that must be structural is
     acceptance vs *authorization* — and that is carried by `OwnerDecision` and
     `OwnerAuthorization` being two types, never joined by subtyping (`AP03-I25`).
@@ -323,8 +323,9 @@ class OwnerDecisionKind(StrEnum):
     FINDING_DISPUTE = "FINDING_DISPUTE"
     WAIVER = "WAIVER"
     DEFERRAL = "DEFERRAL"
+    OBLIGATION_CHANGE = "OBLIGATION_CHANGE"
     EXCEPTIONAL_RECOVERY = "EXCEPTIONAL_RECOVERY"
-    STAGE_OUTCOME_ACCEPTANCE = "STAGE_OUTCOME_ACCEPTANCE"
+    STAGE_OUTCOME = "STAGE_OUTCOME"
     REFUSAL_RESOLUTION = "REFUSAL_RESOLUTION"
     REVOCATION = "REVOCATION"
 
@@ -339,3 +340,4 @@ class StageOutcomeDisposition(StrEnum):
     ACCEPTED = "ACCEPTED"
     REFUSED = "REFUSED"
     ABANDONED = "ABANDONED"
+    ACCEPT_PARTIAL = "ACCEPT_PARTIAL"

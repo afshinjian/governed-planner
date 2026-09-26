@@ -259,6 +259,29 @@ def test_a_copy_of_the_grantability_mapping_is_not_the_mapping() -> None:
     """Copying is permitted and changes nothing: the table itself is unaffected."""
     detached = dict(GIT_GRANTABILITY)
     detached[GitActionClass.PUSH] = GitGrantabilityTier.CURRENTLY_GRANTABLE
-    assert GIT_GRANTABILITY[GitActionClass.PUSH] is (
-        GitGrantabilityTier.PERMANENTLY_NON_GRANTABLE
-    )
+    assert GIT_GRANTABILITY[GitActionClass.PUSH] is (GitGrantabilityTier.PERMANENTLY_NON_GRANTABLE)
+
+
+@pytest.mark.traces("ST01-D3", "AP03-I25", "AP03-I34")
+@pytest.mark.traces('SC01-V5')
+def test_st01c2_exact_decision_and_outcome_vocabularies() -> None:
+    assert {kind.value for kind in OwnerDecisionKind} == {
+        "STAGE_ENTRY_AUTHORIZATION",
+        "NEXT_STAGE_AUTHORIZATION",
+        "SCOPE_CHANGE",
+        "AUTHORITY_EXPANSION",
+        "FINDING_DISPUTE",
+        "WAIVER",
+        "DEFERRAL",
+        "OBLIGATION_CHANGE",
+        "EXCEPTIONAL_RECOVERY",
+        "STAGE_OUTCOME",
+        "REFUSAL_RESOLUTION",
+        "REVOCATION",
+    }
+    assert {outcome.value for outcome in StageOutcomeDisposition} == {
+        "ACCEPTED",
+        "REFUSED",
+        "ABANDONED",
+        "ACCEPT_PARTIAL",
+    }

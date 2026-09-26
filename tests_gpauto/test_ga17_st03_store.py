@@ -60,7 +60,7 @@ from gpauto.coordination_records import (
     WorkerActivationRecord,
 )
 from gpauto.coordination_vocabulary import AuditEntryClass, M2Edge, M2Position
-from gpauto.governance import NonAuthorizingDecision, OwnerDecision, StageOutcome
+from gpauto.governance import OwnerDecision, StageOutcome, StageOutcomeDecision
 from gpauto.identity import (
     AuthorizationRecordId,
     EntryStateBoundaryId,
@@ -139,7 +139,11 @@ def test_every_record_class_is_created_once_and_reads_back_exactly() -> None:
         catalogue = store_schema.build_catalogue()
         assert {spec.rc for spec in catalogue.specs} == {f"RC-{n}" for n in range(10, 42)}
         expected: dict[type[BaseModel], list[BaseModel]] = {}
-        for record in [*built.ingest, *built.records()]:
+        for record in [
+            *built.ingest,
+            *built.records(),
+            *(r for rows in built.deferred_ingest.values() for r in rows),
+        ]:
             expected.setdefault(type(record), []).append(record)
         assert set(expected) == set(catalogue.by_record), "one record of every class"
         for record_type, records in expected.items():
@@ -283,7 +287,7 @@ def test_the_store_exposes_no_update_replace_or_delete_operation() -> None:
         assert path is not None
         for fragment in _sql_fragments(Path(path)):
             upper = fragment.upper()
-            for verb in ("UPDATE ", "DELETE ", "REPLACE", "DROP ", "ALTER ", "UPSERT"):
+            for verb in ("UPDATE ", "DELETE ", "REPLACE ", "DROP ", "ALTER ", "UPSERT"):
                 assert verb not in upper or "BEFORE" in upper, (path, fragment)
 
 
@@ -644,22 +648,6 @@ def _second_epoch(
     first = built.handles["outcome"]
     assert isinstance(first, StageOutcome)
     stage = first.identity.parent_stage
-    acceptance = OwnerDecision(
-        identity=OwnerDecisionId(value=f"accept-second-epoch-{stage.value}"),
-        stage=stage,
-        act=NonAuthorizingDecision(
-            kind=OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE, produced_authorization=ABSENT
-        ),
-    )
-    with st03_ingest.external_connection(store.path) as connection:
-        st03_ingest.write(connection, acceptance)
-    second = StageOutcome(
-        identity=StageOutcomeId(
-            parent_stage=stage, local_discriminator=SECOND_OUTCOME_DISCRIMINATOR
-        ),
-        disposition=StageOutcomeDisposition.ACCEPTED,
-        established_by=acceptance.identity,
-    )
     consumed = {
         record.identity.authorization
         for record in built.records()
@@ -671,10 +659,42 @@ def _second_epoch(
         for record in built.ingest
         if isinstance(record, AuthorizationRecord)
     } - consumed
-    consumption = DispositionEstablishingRecord(
-        identity=DispositionRecordId(
-            authorization=other_root, discriminator=minting.mint_value()
+    boundary = built.handles["boundary"]
+    assert isinstance(boundary, EntryStateBoundaryRecord)
+    other_boundary = boundary.model_copy(
+        update={
+            "resolved_root": other_root,
+            "boundary": boundary.boundary.model_copy(
+                update={"identity": EntryStateBoundaryId(value=minting.mint_value())}
+            ),
+        }
+    )
+    store.create(other_boundary)
+    from gpauto.repository import ClassificationContext
+
+    acceptance = OwnerDecision(
+        identity=OwnerDecisionId(value=f"accept-second-epoch-{stage.value}"),
+        stage=stage,
+        act=StageOutcomeDecision(
+            kind=OwnerDecisionKind.STAGE_OUTCOME,
+            produced_authorization=ABSENT,
+            corrects=ABSENT,
+            context=ClassificationContext(
+                authorization=other_root, entry_boundary=other_boundary.boundary.identity
+            ),
+            outcome=StageOutcomeDisposition.ACCEPTED,
         ),
+    )
+    st03_ingest.ingest(store.path, (acceptance,))
+    second = StageOutcome(
+        identity=StageOutcomeId(
+            parent_stage=stage, local_discriminator=SECOND_OUTCOME_DISCRIMINATOR
+        ),
+        disposition=StageOutcomeDisposition.ACCEPTED,
+        established_by=acceptance.identity,
+    )
+    consumption = DispositionEstablishingRecord(
+        identity=DispositionRecordId(authorization=other_root, discriminator=minting.mint_value()),
         disposition=ConsumedDisposition(established_by_outcome=second.identity),
     )
     return first, second, consumption
@@ -764,9 +784,7 @@ def test_two_outcomes_of_one_stage_coexist_and_each_is_referenced_distinctly() -
         for occurrence in (first, second):
             with pytest.raises(WriteRefused):
                 store.create(
-                    occurrence.model_copy(
-                        update={"disposition": StageOutcomeDisposition.ABANDONED}
-                    )
+                    occurrence.model_copy(update={"disposition": StageOutcomeDisposition.ABANDONED})
                 )
 
         connection = raw(store)
@@ -867,6 +885,7 @@ store.create_unit(unit())
 
 
 @pytest.mark.traces("ST03-R1", "ST03-T2")
+@pytest.mark.traces("SC03-V12")
 def test_a_process_killed_inside_a_unit_leaves_nothing_and_committed_units_survive() -> None:
     """`CW-2`, `EB-3a`, Class A: a real `SIGKILL` between the inserts of one unit. After
     restart the committed units are whole, the interrupted unit is absent, nothing is
@@ -968,13 +987,14 @@ def _refused_after(alteration: str) -> None:
 
 
 @pytest.mark.traces("AP11-I69", "ST03-N5", "ST03-A2")
+@pytest.mark.traces("SC03-V11")
 def test_a_store_under_another_storage_version_is_refused_and_left_untouched() -> None:
     """`VM-5`, `VM-8`, `SRB11-14`: an older or newer storage version is refused as
     unavailable — never migrated, upgraded or partially read — and not written to. Version
     1 is the unaccepted candidate whose `RC-36` was keyed on the parent stage alone: it is
     refused like any other, and no v1 reader or v1 → v2 path exists."""
-    assert store_schema.STORAGE_VERSION == 2
-    for version in (1, 0, 3):
+    assert store_schema.STORAGE_VERSION == 3
+    for version in (1, 2, 0, 4):
         _refused_after(f"PRAGMA user_version = {version}")
     with tempfile.TemporaryDirectory(prefix="gpauto-st03-") as directory:
         path = Path(directory) / "coordination.sqlite"
@@ -983,7 +1003,7 @@ def test_a_store_under_another_storage_version_is_refused_and_left_untouched() -
             assert reopened.effective_pragmas()["recursive_triggers"] == 1
         connection = sqlite3.connect(path)
         try:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         finally:
             connection.close()
 
@@ -1031,18 +1051,19 @@ def test_the_schema_is_pinned_to_its_version() -> None:
     digest is pinned against the version it belongs to, so a changed schema that kept
     its version fails here rather than passing the stale-schema check silently.
 
-    Version 2 differs from the unaccepted version-1 candidate by `RC-36`'s key, which is
-    asserted independently of the digest before the digest is compared (GA03-R01)."""
+    Version 3 implements ST03C-1. The exact schema content is asserted independently
+    before comparing its pinned digest."""
+    test_st03c1_schema_content_before_digest()
     statements = store_schema.schema_statements(store_schema.build_catalogue())
     (rc36,) = [s for s in statements if s.startswith(f"CREATE TABLE {RC36} ")]
     assert f"PRIMARY KEY ({', '.join(RC36_KEY)})" in rc36
     digest = hashlib.sha256("\n;\n".join(statements).encode("utf-8")).hexdigest()
-    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/2"
-    assert store_schema.STORAGE_VERSION == 2
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/3"
+    assert store_schema.STORAGE_VERSION == 3
     assert digest == PINNED_SCHEMA_DIGEST
 
 
-PINNED_SCHEMA_DIGEST = "92f3c2de1082937d290ffd08d402de7198b8ccb00b3625790ace56d805efaac3"
+PINNED_SCHEMA_DIGEST = "e0f8eabf489462843fe9b8966511bb94a7e18f2aa358193d0be488f0dc84f7c6"
 
 
 # --- placement: PB-2(i), and (iv) by derivation from it -------------------------------------
@@ -1214,3 +1235,760 @@ def test_the_store_imports_no_engine_and_no_spike_module() -> None:
             )
             for name in names:
                 assert name.split(".")[0] not in {"dbos", "gplanner", "sqlalchemy"}, name
+
+
+# ST01C-2 / ST03C-1: schema content is asserted before its digest is accepted.
+RC13 = "rc13_owner_decision"
+F9 = "act__StageOutcomeDecision"
+O6 = "act__ObligationChangeDecision"
+DECISION_FORMS = {
+    "AuthorizingDecision": (
+        "STAGE_ENTRY_AUTHORIZATION",
+        "NEXT_STAGE_AUTHORIZATION",
+        "SCOPE_CHANGE",
+        "AUTHORITY_EXPANSION",
+    ),
+    "DisputeResolutionDecision": ("FINDING_DISPUTE",),
+    "ObligationExtinguishingDecision": ("WAIVER", "DEFERRAL"),
+    "ObligationChangeDecision": ("OBLIGATION_CHANGE",),
+    "RevocationDecision": ("REVOCATION",),
+    "RefusalResolutionDecision": ("REFUSAL_RESOLUTION",),
+    "StageOutcomeDecision": ("STAGE_OUTCOME",),
+    "ExceptionalRecoveryDecision": ("EXCEPTIONAL_RECOVERY",),
+}
+
+
+def _foreign_keys(
+    connection: sqlite3.Connection, table: str
+) -> set[tuple[tuple[str, ...], str, tuple[str, ...]]]:
+    grouped: dict[int, list[tuple[object, ...]]] = {}
+    for row in connection.execute(f"PRAGMA foreign_key_list({table})"):
+        grouped.setdefault(row[0], []).append(row)
+    return {
+        (tuple(str(r[3]) for r in rows), str(rows[0][2]), tuple(str(r[4]) for r in rows))
+        for rows in grouped.values()
+    }
+
+
+def assert_v3_schema(connection: sqlite3.Connection) -> None:
+    """Independent schema-content oracle; redundant guards are checked separately."""
+    from typing import get_args
+
+    from gpauto.governance import DecisionAct
+
+    schema = {
+        str(name): str(sql)
+        for name, sql in connection.execute(
+            "SELECT name, sql FROM sqlite_schema WHERE sql IS NOT NULL"
+        )
+    }
+    ddl = schema[RC13]
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/3"
+    assert store_schema.STORAGE_VERSION == 3
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert set(DECISION_FORMS) == {
+        store_schema.variant_tag(form) for form in get_args(DecisionAct.__value__)
+    }
+    tags = ", ".join(f"'{tag}'" for tag in DECISION_FORMS)
+    assert f"CHECK (act__kind IN ({tags}))" in ddl
+    assert "STAGE_OUTCOME_ACCEPTANCE" not in "\n".join(schema.values())
+    foreign = _foreign_keys(connection, RC13)
+    # Independent per-column presence and closed-state/value checks. Every generated
+    # variant column is required exactly under its enclosing discriminator choices.
+    for tag in DECISION_FORMS:
+        prefix = f"act__{tag}__"
+        for column in _columns(connection, RC13):
+            if not column.startswith(prefix):
+                continue
+            condition = f"act__kind = '{tag}'"
+            tail = column.removeprefix(prefix)
+            for field in ("corrects", "produced_authorization"):
+                for variant in ("Present", "KnownAbsent"):
+                    if tail.startswith(f"{field}__{variant}__"):
+                        condition += f" AND {prefix}{field}__kind = '{variant}'"
+            assert f"CHECK (COALESCE({condition}, 0) = ({column} IS NOT NULL))" in ddl
+            if column.endswith("corrects__kind"):
+                assert f"CHECK ({column} IN ('Present', 'KnownAbsent'))" in ddl
+    outcomes = "'ACCEPTED', 'REFUSED', 'ABANDONED', 'ACCEPT_PARTIAL'"
+    assert f"CHECK ({F9}__outcome IN ({outcomes}))" in ddl
+    assert f"CHECK (disposition IN ({outcomes}))" in schema[RC36]
+    for tag, kinds in DECISION_FORMS.items():
+        prefix = f"act__{tag}"
+        tokens = ", ".join(f"'{kind}'" for kind in kinds)
+        assert f"CHECK ({prefix}__kind IN ({tokens}))" in ddl
+        if tag == "ObligationChangeDecision":
+            assert f"{prefix}__corrects" not in ddl
+            continue
+        value = f"{prefix}__corrects__Present__value"
+        assert f"CHECK ({value} IS NULL OR {value} <> identity)" in ddl
+        assert ((value,), RC13, ("identity",)) in foreign
+        assert f"{RC13}__prior__{tag}" in schema
+        trigger = schema[f"{RC13}__prior__{tag}"]
+        assert f"BEFORE INSERT ON {RC13}" in trigger
+        assert f"WHEN NEW.{value} IS NOT NULL AND NOT EXISTS " in trigger
+        assert f"(SELECT 1 FROM {RC13} WHERE identity = NEW.{value})" in trigger
+        assert "RAISE(ABORT," in trigger
+    assert (
+        f"CHECK ({O6}__replacement_requirement IS NULL OR "
+        f"length(CAST({O6}__replacement_requirement AS BLOB)) > 0)" in ddl
+    )
+    expected = {
+        (("act__DisputeResolutionDecision__member",), "rc25_finding", ("finding__identity",)),
+        (
+            ("act__DisputeResolutionDecision__member",),
+            "rc26_frozen_finding_set__members",
+            ("element",),
+        ),
+        (
+            ("act__RefusalResolutionDecision__halt_occurrence",),
+            "rc31_halt_occurrence",
+            ("identity",),
+        ),
+        (
+            (f"{F9}__context__authorization", f"{F9}__context__entry_boundary"),
+            "rc17_entry_state_boundary",
+            ("resolved_root", "boundary__identity"),
+        ),
+    }
+    for tag in ("ObligationExtinguishingDecision", "ObligationChangeDecision"):
+        expected.add(
+            (
+                (
+                    f"act__{tag}__obligation__parent_frozen_set",
+                    f"act__{tag}__obligation__member_finding",
+                ),
+                "rc27_remediation_obligation",
+                ("identity__parent_frozen_set", "identity__member_finding"),
+            )
+        )
+    assert expected <= foreign
+    for table, columns, target in (
+        (
+            "rc32_governance_event_resolution",
+            ("decision", "halt_occurrence"),
+            ("identity", "act__RefusalResolutionDecision__halt_occurrence"),
+        ),
+        (
+            "rc35_disposition_establishing_record",
+            ("disposition__RevokedDisposition__established_by_decision", "identity__authorization"),
+            ("identity", "act__RevocationDecision__revoked"),
+        ),
+        (
+            RC36,
+            ("established_by", "identity__parent_stage", "disposition"),
+            ("identity", "stage", f"{F9}__outcome"),
+        ),
+    ):
+        assert (columns, RC13, target) in _foreign_keys(connection, table)
+    for table in (RC13, RC36):
+        for row in connection.execute(f"PRAGMA index_list({table})"):
+            if row[2]:
+                cols = tuple(r[2] for r in connection.execute(f"PRAGMA index_info('{row[1]}')"))
+                assert "identity" in cols if table == RC13 else set(RC36_KEY) <= set(cols)
+    rc35 = schema["rc35_disposition_establishing_record"]
+    assert "SuspendedDisposition__established_by_event__AuthorityAmbiguityId" not in rc35
+    for event in ("RefusalId", "EnvelopeViolationId", "UnaccountedMutationId"):
+        assert f"SuspendedDisposition__established_by_event__{event}" in rc35
+    for trigger_name, fragments in {
+        f"{RC13}__no_outcome_succession": (
+            "BEFORE INSERT",
+            "NEXT_STAGE_AUTHORIZATION",
+            "STAGE_OUTCOME",
+            "RAISE(ABORT,",
+            "NEW.act__AuthorizingDecision__corrects__Present__value",
+            "NEW.act__StageOutcomeDecision__corrects__Present__value",
+        ),
+        "rc35_disposition_establishing_record__consumed_context": (
+            "BEFORE INSERT",
+            "ConsumedDisposition",
+            "rc36_stage_outcome",
+            RC13,
+            f"{F9}__context__authorization = NEW.identity__authorization",
+            "RAISE(ABORT,",
+        ),
+    }.items():
+        assert trigger_name in schema
+        for fragment in fragments:
+            assert fragment in schema[trigger_name]
+    for column in (
+        "act__AuthorizingDecision__produced_authorization__value",
+        "act__ExceptionalRecoveryDecision__produced_authorization__Present__value",
+        "act__RevocationDecision__revoked",
+    ):
+        assert f"{RC13}__instance__{column}" in schema
+    for table in (
+        RC13,
+        RC36,
+        "rc32_governance_event_resolution",
+        "rc35_disposition_establishing_record",
+    ):
+        for operation in ("update", "delete"):
+            assert f"{table}__no_{operation}" in schema
+    assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.traces("ST03-D1", "ST03-T3", "RC-13", "RC-32", "RC-35", "RC-36")
+@pytest.mark.traces("SC01-V14", "SC03-V2", "SC03-V10", "SC03-V11")
+def test_st03c1_schema_content_before_digest() -> None:
+    with fresh_store() as store, st03_ingest.external_connection(store.path) as connection:
+        assert_v3_schema(connection)
+
+
+def _bundle_decisions(built: st03_world.World) -> tuple[OwnerDecision, ...]:
+    import fixtures
+    from gpauto.coordination_records import HaltOccurrence
+    from gpauto.governance import (
+        DisputeResolutionDecision,
+        ObligationChangeDecision,
+        ObligationExtinguishingDecision,
+        RefusalResolutionDecision,
+        RevocationDecision,
+    )
+    from gpauto.repository import ClassificationContext
+
+    boundary = built.handles["boundary"]
+    halt = built.handles["halt"]
+    obligation = built.one_of(RemediationObligation)
+    assert isinstance(boundary, EntryStateBoundaryRecord)
+    assert isinstance(halt, HaltOccurrence)
+    assert isinstance(obligation, RemediationObligation)
+    (accepted,) = [
+        d
+        for rows in built.deferred_ingest.values()
+        for d in rows
+        if isinstance(d.act, StageOutcomeDecision)
+    ]
+    decisions = []
+    for decision in fixtures.corrective_decisions():
+        act = decision.act
+        changes: dict[str, object] = {}
+        if isinstance(act.produced_authorization, Present):
+            changes["produced_authorization"] = Present(value=boundary.resolved_root)
+        if isinstance(act, ObligationChangeDecision | ObligationExtinguishingDecision):
+            changes["obligation"] = obligation.identity
+        elif isinstance(act, DisputeResolutionDecision):
+            changes["member"] = obligation.identity.member_finding
+        elif isinstance(act, RevocationDecision):
+            changes["revoked"] = boundary.resolved_root
+        elif isinstance(act, RefusalResolutionDecision):
+            changes["halt_occurrence"] = halt.identity
+        elif isinstance(act, StageOutcomeDecision):
+            changes["context"] = ClassificationContext(
+                authorization=boundary.resolved_root, entry_boundary=boundary.boundary.identity
+            )
+        decisions.append(
+            decision.model_copy(
+                update={"stage": accepted.stage, "act": act.model_copy(update=changes)}
+            )
+        )
+    return tuple(decisions)
+
+
+def _insert_decision_rows(connection: sqlite3.Connection, *rows: dict[str, object]) -> None:
+    columns = sorted(set().union(*(row.keys() for row in rows)))
+    placeholders = "(" + ", ".join("?" for _ in columns) + ")"
+    connection.execute(
+        f"INSERT INTO {RC13} ({', '.join(columns)}) VALUES "
+        + ", ".join(placeholders for _ in rows),
+        [row.get(column) for row in rows for column in columns],
+    )
+
+
+def _refused_decision_rows(connection: sqlite3.Connection, *rows: dict[str, object]) -> None:
+    before = tuple(connection.iterdump())
+    with pytest.raises(sqlite3.IntegrityError):
+        _insert_decision_rows(connection, *rows)
+    assert tuple(connection.iterdump()) == before
+
+
+@pytest.mark.traces("RC-13", "ST03-T1", "ST03-N3")
+@pytest.mark.traces("SC03-V1", "SC03-V3", "SC03-V6", "SC03-V7")
+def test_st03c1_all_kinds_forms_presence_and_referents() -> None:
+    """SC03-V1/V3/V6/V7: direct SQL cannot bypass the closed physical form."""
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        decisions = _bundle_decisions(built)
+        assert {d.act.kind for d in decisions} == set(OwnerDecisionKind)
+        rows = [st03_ingest._decision_row(d) for d in decisions]
+        for decision, row in zip(decisions, rows, strict=True):
+            st03_ingest.ingest(store.path, (decision,))
+            assert store.read(OwnerDecision, decision.identity) == decision
+            duplicate = {**row, "identity": f"duplicate-{row['identity']}"}
+            _insert_decision_rows(conn, duplicate)  # referents are intentionally not unique
+            for column in row:
+                if column not in ("identity", "record_format"):
+                    _refused_decision_rows(conn, {**duplicate, "identity": "missing", column: None})
+            for tag in DECISION_FORMS:
+                if tag != row["act__kind"]:
+                    _refused_decision_rows(
+                        conn, {**duplicate, "identity": "wrong-form", "act__kind": tag}
+                    )
+            for other in rows:
+                if other["act__kind"] != row["act__kind"]:
+                    kind_column = f"act__{other['act__kind']}__kind"
+                    _refused_decision_rows(
+                        conn,
+                        {
+                            **other,
+                            "identity": "wrong-kind-in-complete-form",
+                            kind_column: row[f"act__{row['act__kind']}__kind"],
+                        },
+                    )
+                for column, value in other.items():
+                    if column.startswith("act__") and column not in row:
+                        _refused_decision_rows(
+                            conn, {**duplicate, "identity": "stray", column: value}
+                        )
+            for columns, target, _ in _foreign_keys(conn, RC13):
+                if target == RC13:
+                    continue
+                if all(row.get(column) is not None for column in columns):
+                    _refused_decision_rows(
+                        conn, {**duplicate, "identity": "dangling", columns[0]: "0" * 32}
+                    )
+            for column in row:
+                if column.endswith("produced_authorization__value") or column.endswith("__revoked"):
+                    _refused_decision_rows(
+                        conn,
+                        {**duplicate, "identity": "missing-instance", column: "missing-instance"},
+                    )
+
+
+@pytest.mark.traces("RC-13", "ST03-T3", "ST03-N3")
+@pytest.mark.traces("SC03-V4")
+def test_st03c1_o6_exact_unicode_and_empty_string() -> None:
+    from gpauto.governance import ObligationChangeDecision
+
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        base = next(
+            d for d in _bundle_decisions(built) if isinstance(d.act, ObligationChangeDecision)
+        )
+        for index, value in enumerate(("\0", "\0requirement", "inside\0text", " e\u0301 漢字\n")):
+            decision = base.model_copy(
+                update={
+                    "identity": OwnerDecisionId(value=f"o6-{index}"),
+                    "act": base.act.model_copy(update={"replacement_requirement": value}),
+                }
+            )
+            st03_ingest.ingest(store.path, (decision,))
+            assert store.read(OwnerDecision, decision.identity) == decision
+            assert (
+                conn.execute(
+                    f"SELECT {O6}__replacement_requirement FROM {RC13} WHERE identity=?",
+                    (decision.identity.value,),
+                ).fetchone()[0]
+                == value
+            )
+        row = st03_ingest._decision_row(base)
+        _refused_decision_rows(conn, {**row, f"{O6}__replacement_requirement": ""})
+
+
+@pytest.mark.traces("RC-13", "ST03-T3", "ST03-N3", "AP03-I25")
+@pytest.mark.traces("SC01-V14", "SC01-V16", "SC03-V5")
+def test_st03c1_corrections_prior_targets_cycles_and_sa9_2() -> None:
+    from gpauto.governance import ObligationChangeDecision
+
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        decisions = _bundle_decisions(built)
+        st03_ingest.ingest(store.path, decisions)
+        for base in decisions:
+            if isinstance(base.act, ObligationChangeDecision):
+                continue
+            prior_bytes = store.read(OwnerDecision, base.identity)
+            for index in range(2):
+                correction = base.model_copy(
+                    update={
+                        "identity": OwnerDecisionId(value=f"correction-{base.act.kind}-{index}"),
+                        "act": base.act.model_copy(
+                            update={"corrects": Present(value=base.identity)}
+                        ),
+                    }
+                )
+                st03_ingest.ingest(store.path, (correction,))
+                assert store.read(OwnerDecision, correction.identity) == correction
+            assert store.read(OwnerDecision, base.identity) == prior_bytes
+            # SC01-V14: in-memory self-reference is structural; authoritative ingest refuses.
+            for identity in (OwnerDecisionId(value="missing"), base.identity):
+                changed = base.model_copy(
+                    update={
+                        "identity": OwnerDecisionId(value="self"),
+                        "act": base.act.model_copy(update={"corrects": Present(value=identity)}),
+                    }
+                )
+                if identity == base.identity:
+                    changed = changed.model_copy(
+                        update={
+                            "act": changed.act.model_copy(
+                                update={"corrects": Present(value=changed.identity)}
+                            )
+                        }
+                    )
+                before = tuple(conn.iterdump())
+                with pytest.raises(sqlite3.IntegrityError):
+                    st03_ingest.ingest(store.path, (changed,))
+                assert tuple(conn.iterdump()) == before
+            row = st03_ingest._decision_row(base)
+            prefix = f"act__{type(base.act).__name__}__corrects"
+            present = {k: v for k, v in row.items() if not k.startswith(prefix)}
+            present.update({f"{prefix}__kind": "Present", f"{prefix}__Present__state": "PRESENT"})
+            first = {**present, "identity": "first", f"{prefix}__Present__value": "second"}
+            second = {**row, "identity": "second"}
+            _refused_decision_rows(conn, first, second)  # forward reference, same statement
+            _refused_decision_rows(
+                conn, first, {**present, "identity": "second", f"{prefix}__Present__value": "first"}
+            )
+            # Earlier rows in the same statement are permissible prior targets.
+            _insert_decision_rows(
+                conn,
+                {**row, "identity": f"early-{base.act.kind}"},
+                {
+                    **present,
+                    "identity": f"later-{base.act.kind}",
+                    f"{prefix}__Present__value": f"early-{base.act.kind}",
+                },
+            )
+        next_stage = next(
+            d for d in decisions if d.act.kind == OwnerDecisionKind.NEXT_STAGE_AUTHORIZATION
+        )
+        outcome = next(d for d in decisions if isinstance(d.act, StageOutcomeDecision))
+        for source, target in ((next_stage, outcome), (outcome, next_stage)):
+            correction = source.model_copy(
+                update={
+                    "identity": OwnerDecisionId(value="prohibited"),
+                    "act": source.act.model_copy(
+                        update={"corrects": Present(value=target.identity)}
+                    ),
+                }
+            )
+            _refused_decision_rows(conn, st03_ingest._decision_row(correction))
+            forward_id = OwnerDecisionId(value="forward-target")
+            correction = correction.model_copy(
+                update={
+                    "act": correction.act.model_copy(update={"corrects": Present(value=forward_id)})
+                }
+            )
+            later = target.model_copy(update={"identity": forward_id})
+            _refused_decision_rows(
+                conn, st03_ingest._decision_row(correction), st03_ingest._decision_row(later)
+            )
+
+
+@pytest.mark.traces("RC-13", "RC-26", "ST03-N3")
+@pytest.mark.traces("SC03-V1")
+def test_st03c1_dispute_requires_membership_and_keeps_finding_fk() -> None:
+    """OBS_ST03_1_IMPLEMENTATION_DETAIL: both native relationships survive."""
+    from gpauto.governance import DisputeResolutionDecision
+    from gpauto.identity import FindingId
+
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        base = next(
+            d for d in _bundle_decisions(built) if isinstance(d.act, DisputeResolutionDecision)
+        )
+        st03_ingest.ingest(store.path, (base,))
+        assert store.read(OwnerDecision, base.identity) == base
+        finding = built.one_of(FindingRecord)
+        assert isinstance(finding, FindingRecord)
+        nonmember = finding.model_copy(
+            update={
+                "finding": finding.finding.model_copy(
+                    update={"identity": FindingId(value=minting.mint_value())}
+                )
+            }
+        )
+        # RC-25's membership FK is deferred: the finding can exist within this
+        # transaction before membership, but F-4 must reject it immediately.
+        conn.execute("BEGIN IMMEDIATE")
+        layout = store_schema.build_catalogue().by_record[FindingRecord]
+        finding_row, children = store_schema.flatten(layout, nonmember)
+        assert not any(children.values())
+        st03_ingest._insert(conn, layout.name, finding_row)
+        row = st03_ingest._decision_row(base)
+        _refused_decision_rows(
+            conn,
+            {
+                **row,
+                "identity": "nonmember-dispute",
+                "act__DisputeResolutionDecision__member": nonmember.finding.identity.value,
+            },
+        )
+        conn.execute("ROLLBACK")
+        foreign = _foreign_keys(conn, RC13)
+        assert (
+            ("act__DisputeResolutionDecision__member",),
+            "rc25_finding",
+            ("finding__identity",),
+        ) in foreign
+        assert (
+            ("act__DisputeResolutionDecision__member",),
+            "rc26_frozen_finding_set__members",
+            ("element",),
+        ) in foreign
+
+
+def _refused_record(store: store_module.CoordinationStore, record: BaseModel) -> None:
+    with st03_ingest.external_connection(store.path) as conn:
+        before = tuple(conn.iterdump())
+        with pytest.raises(WriteRefused):
+            store.create(record)  # type: ignore[arg-type]
+        assert tuple(conn.iterdump()) == before
+
+
+@pytest.mark.traces("RC-13", "RC-32", "RC-35", "RC-36", "ST03-N3")
+@pytest.mark.traces("SC03-V1", "SC03-V8", "SC03-V9", "SC03-V10")
+def test_st03c1_context_outcome_resolution_and_instance_agreement() -> None:
+    from gpauto.authorization import RevokedDisposition, SuspendedDisposition
+    from gpauto.coordination_identity import HaltOccurrenceId
+    from gpauto.coordination_records import (
+        EnvelopeViolationRecord,
+        GovernanceEventResolution,
+        HaltOccurrence,
+    )
+    from gpauto.governance import RevocationDecision
+    from gpauto.identity import GovernedStageId
+    from gpauto.repository import ClassificationContext
+
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        decisions = _bundle_decisions(built)
+        st03_ingest.ingest(store.path, decisions)
+        first, second, consumed = _second_epoch(store, built)
+        store.create(second)
+        store.create(consumed)
+        boundary = built.handles["boundary"]
+        assert isinstance(boundary, EntryStateBoundaryRecord)
+        outcome_decision = next(d for d in decisions if isinstance(d.act, StageOutcomeDecision))
+        mismatch = outcome_decision.model_copy(
+            update={
+                "identity": OwnerDecisionId(value="bad-pair"),
+                "act": outcome_decision.act.model_copy(
+                    update={
+                        "context": ClassificationContext(
+                            authorization=consumed.identity.authorization,
+                            entry_boundary=boundary.boundary.identity,
+                        )
+                    }
+                ),
+            }
+        )
+        _refused_decision_rows(conn, st03_ingest._decision_row(mismatch))
+        _refused_record(
+            store,
+            consumed.model_copy(
+                update={
+                    "identity": DispositionRecordId(
+                        authorization=boundary.resolved_root, discriminator=minting.mint_value()
+                    )
+                }
+            ),
+        )
+        for index, value in enumerate(StageOutcomeDisposition):
+            decision = outcome_decision.model_copy(
+                update={
+                    "identity": OwnerDecisionId(value=f"outcome-{index}"),
+                    "act": outcome_decision.act.model_copy(update={"outcome": value}),
+                }
+            )
+            st03_ingest.ingest(store.path, (decision,))
+            assert store.read(OwnerDecision, decision.identity) == decision
+            outcome = first.model_copy(
+                update={
+                    "identity": StageOutcomeId(
+                        parent_stage=first.identity.parent_stage,
+                        local_discriminator=f"all-values-{index}",
+                    ),
+                    "established_by": decision.identity,
+                    "disposition": value,
+                }
+            )
+            store.create(outcome)
+            assert store.read(StageOutcome, outcome.identity) == outcome
+            for wrong in StageOutcomeDisposition:
+                if wrong != value:
+                    _refused_record(
+                        store,
+                        outcome.model_copy(
+                            update={
+                                "identity": StageOutcomeId(
+                                    parent_stage=first.identity.parent_stage,
+                                    local_discriminator="wrong-value",
+                                ),
+                                "disposition": wrong,
+                            }
+                        ),
+                    )
+        other_stage = GovernedStageId(value="another-stage")
+        stage = next(r for r in built.ingest if isinstance(r, GovernedStage))
+        st03_ingest.ingest(store.path, (stage.model_copy(update={"identity": other_stage}),))
+        _refused_record(
+            store,
+            first.model_copy(
+                update={
+                    "identity": StageOutcomeId(
+                        parent_stage=other_stage, local_discriminator="wrong-stage"
+                    )
+                }
+            ),
+        )
+        nonoutcome = next(d for d in decisions if isinstance(d.act, RevocationDecision))
+        _refused_record(
+            store,
+            first.model_copy(
+                update={
+                    "identity": StageOutcomeId(
+                        parent_stage=first.identity.parent_stage, local_discriminator="wrong-kind"
+                    ),
+                    "established_by": nonoutcome.identity,
+                }
+            ),
+        )
+        revoked = DispositionEstablishingRecord(
+            identity=DispositionRecordId(
+                authorization=boundary.resolved_root, discriminator=minting.mint_value()
+            ),
+            disposition=RevokedDisposition(established_by_decision=nonoutcome.identity),
+        )
+        store.create(revoked)
+        _refused_record(
+            store,
+            revoked.model_copy(
+                update={
+                    "identity": DispositionRecordId(
+                        authorization=consumed.identity.authorization,
+                        discriminator=minting.mint_value(),
+                    )
+                }
+            ),
+        )
+        _refused_record(
+            store,
+            revoked.model_copy(
+                update={
+                    "identity": DispositionRecordId(
+                        authorization=boundary.resolved_root, discriminator=minting.mint_value()
+                    ),
+                    "disposition": RevokedDisposition(
+                        established_by_decision=outcome_decision.identity
+                    ),
+                }
+            ),
+        )
+        resolution = built.one_of(GovernanceEventResolution)
+        halt = built.handles["halt"]
+        assert isinstance(resolution, GovernanceEventResolution)
+        assert isinstance(halt, HaltOccurrence)
+        other_halt = halt.model_copy(
+            update={"identity": HaltOccurrenceId(value=minting.mint_value())}
+        )
+        store.create(other_halt)
+        for changes in (
+            {"halt_occurrence": other_halt.identity},
+            {"decision": nonoutcome.identity},
+        ):
+            _refused_record(
+                store,
+                resolution.model_copy(
+                    update={
+                        **changes,
+                        "identity": type(resolution.identity)(value=minting.mint_value()),
+                    }
+                ),
+            )
+        violation = built.one_of(EnvelopeViolationRecord)
+        mutation = built.handles["mutation"]
+        assert isinstance(violation, EnvelopeViolationRecord)
+        assert isinstance(mutation, UnaccountedMutation)
+        for event in (halt.event, violation.violation.identity, mutation.identity):
+            suspension = DispositionEstablishingRecord(
+                identity=DispositionRecordId(
+                    authorization=boundary.resolved_root, discriminator=minting.mint_value()
+                ),
+                disposition=SuspendedDisposition(established_by_event=event),
+            )
+            store.create(suspension)
+            assert store.read(DispositionEstablishingRecord, suspension.identity) == suspension
+        # Accepted act and outcome remain separate immutable records.
+        assert store.read(OwnerDecision, first.established_by) is not None
+        assert store.read(StageOutcome, first.identity) == first
+
+
+@pytest.mark.traces("RC-13", "RC-17", "RC-31", "ST03-T1")
+@pytest.mark.traces("SC03-V1")
+def test_st03c1_world_inserts_decisions_after_authoritative_referents() -> None:
+    """OBS_ST03_2_IMPLEMENTATION_DETAIL: same world facts, referential insertion order."""
+    from gpauto.coordination_records import HaltOccurrence
+    from gpauto.governance import RefusalResolutionDecision
+
+    built = st03_world.world()
+    seen: list[BaseModel] = list(built.ingest)
+    with fresh_store() as store:
+        st03_ingest.ingest(store.path, built.ingest)
+        for index, unit in enumerate(built.units):
+            for decision in built.deferred_ingest.get(index, ()):
+                act = decision.act
+                if isinstance(act, RefusalResolutionDecision):
+                    assert any(
+                        isinstance(r, HaltOccurrence) and r.identity == act.halt_occurrence
+                        for r in seen
+                    )
+                elif isinstance(act, StageOutcomeDecision):
+                    assert any(
+                        isinstance(r, EntryStateBoundaryRecord)
+                        and r.resolved_root == act.context.authorization
+                        and r.boundary.identity == act.context.entry_boundary
+                        for r in seen
+                    )
+                else:
+                    pytest.fail("unexpected deferred decision")
+                st03_ingest.ingest(store.path, (decision,))
+                seen.append(decision)
+            store.create_unit(unit)  # type: ignore[arg-type]
+            seen.extend(unit)
+        for record in seen:
+            layout = store_schema.build_catalogue().by_record[type(record)]
+            # Read-back equality for every fact, with the existing every-class test.
+            assert record in store.enumerate(layout.spec.record)
+
+
+@pytest.mark.traces("RC-13", "ST03-T1", "ST03-N3")
+@pytest.mark.traces("SC03-V7")
+def test_st03c1_exceptional_production_and_non_authorizing_absence() -> None:
+    from gpauto.governance import ExceptionalRecoveryDecision
+
+    with populated_store() as (store, built), st03_ingest.external_connection(store.path) as conn:
+        decisions = _bundle_decisions(built)
+        base = next(d for d in decisions if isinstance(d.act, ExceptionalRecoveryDecision))
+        boundary = built.handles["boundary"]
+        assert isinstance(boundary, EntryStateBoundaryRecord)
+        for suffix, production in (
+            ("absent", ABSENT),
+            ("present", Present(value=boundary.resolved_root)),
+        ):
+            decision = base.model_copy(
+                update={
+                    "identity": OwnerDecisionId(value=suffix),
+                    "act": base.act.model_copy(update={"produced_authorization": production}),
+                }
+            )
+            st03_ingest.ingest(store.path, (decision,))
+            assert store.read(OwnerDecision, decision.identity) == decision
+        row = st03_ingest._decision_row(decision)
+        _refused_decision_rows(
+            conn,
+            {
+                **row,
+                "identity": "missing-instance",
+                (
+                    "act__ExceptionalRecoveryDecision__produced_authorization__Present__value"
+                ): "missing",
+            },
+        )
+        for decision in decisions:
+            if decision.act.produced_authorization == ABSENT:
+                continue
+            row = st03_ingest._decision_row(decision)
+            for column in row:
+                if (
+                    column.endswith("produced_authorization__state")
+                    and row[column] == "KNOWN_ABSENT"
+                ):
+                    _refused_decision_rows(
+                        conn, {**row, "identity": "false-production", column: "PRESENT"}
+                    )

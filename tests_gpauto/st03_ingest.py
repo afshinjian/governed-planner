@@ -25,8 +25,18 @@ from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
+from gpauto.absence import KnownAbsent, Present
 from gpauto.authorization import AuthorizationRecord
-from gpauto.governance import AuthorizingDecision, NonAuthorizingDecision, OwnerDecision
+from gpauto.governance import (
+    DisputeResolutionDecision,
+    ExceptionalRecoveryDecision,
+    ObligationChangeDecision,
+    ObligationExtinguishingDecision,
+    OwnerDecision,
+    RefusalResolutionDecision,
+    RevocationDecision,
+    StageOutcomeDecision,
+)
 from gpauto.scope_frame import (
     BaselineIdentity,
     GovernedStage,
@@ -81,28 +91,45 @@ def _decision_row(decision: OwnerDecision) -> dict[str, object]:
         "stage": decision.stage.value,
         "record_format": RECORD_FORMAT,
     }
-    if isinstance(act, AuthorizingDecision):
-        prefix = "act__AuthorizingDecision"
-        row.update(
-            {
-                "act__kind": "AuthorizingDecision",
-                f"{prefix}__kind": act.kind.value,
-                f"{prefix}__produced_authorization__state": "PRESENT",
-                f"{prefix}__produced_authorization__value": act.produced_authorization.value.value,
-            }
-        )
-    elif isinstance(act, NonAuthorizingDecision):
-        prefix = "act__NonAuthorizingDecision"
-        row.update(
-            {
-                "act__kind": "NonAuthorizingDecision",
-                f"{prefix}__kind": act.kind.value,
-                f"{prefix}__produced_authorization__state": "KNOWN_ABSENT",
-                f"{prefix}__produced_authorization__basis": act.produced_authorization.basis,
-            }
-        )
+    tag = type(act).__name__
+    prefix = f"act__{tag}"
+    row.update({"act__kind": tag, f"{prefix}__kind": act.kind.value})
+    produced = act.produced_authorization
+    produced_prefix = f"{prefix}__produced_authorization"
+    if isinstance(act, ExceptionalRecoveryDecision):
+        variant = "Present" if isinstance(produced, Present) else "KnownAbsent"
+        row[f"{produced_prefix}__kind"] = variant
+        produced_prefix += f"__{variant}"
+    row[f"{produced_prefix}__state"] = produced.state.value
+    if isinstance(produced, Present):
+        row[f"{produced_prefix}__value"] = produced.value.value
     else:
-        raise NotImplementedError("the fixture writes the decision forms its tests use")
+        row[f"{produced_prefix}__basis"] = produced.basis
+    if not isinstance(act, ObligationChangeDecision):
+        corrects = act.corrects
+        if isinstance(corrects, KnownAbsent):
+            row[f"{prefix}__corrects__kind"] = "KnownAbsent"
+            row[f"{prefix}__corrects__KnownAbsent__state"] = corrects.state.value
+            row[f"{prefix}__corrects__KnownAbsent__basis"] = corrects.basis
+        else:
+            row[f"{prefix}__corrects__kind"] = "Present"
+            row[f"{prefix}__corrects__Present__state"] = corrects.state.value
+            row[f"{prefix}__corrects__Present__value"] = corrects.value.value
+    if isinstance(act, ObligationExtinguishingDecision | ObligationChangeDecision):
+        row[f"{prefix}__obligation__parent_frozen_set"] = act.obligation.parent_frozen_set.value
+        row[f"{prefix}__obligation__member_finding"] = act.obligation.member_finding.value
+    if isinstance(act, ObligationChangeDecision):
+        row[f"{prefix}__replacement_requirement"] = act.replacement_requirement
+    elif isinstance(act, DisputeResolutionDecision):
+        row[f"{prefix}__member"] = act.member.value
+    elif isinstance(act, RevocationDecision):
+        row[f"{prefix}__revoked"] = act.revoked.value
+    elif isinstance(act, RefusalResolutionDecision):
+        row[f"{prefix}__halt_occurrence"] = act.halt_occurrence.value
+    elif isinstance(act, StageOutcomeDecision):
+        row[f"{prefix}__context__authorization"] = act.context.authorization.value
+        row[f"{prefix}__context__entry_boundary"] = act.context.entry_boundary.value
+        row[f"{prefix}__outcome"] = act.outcome.value
     return row
 
 

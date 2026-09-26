@@ -661,9 +661,11 @@ def _schema(model: type[BaseModel]) -> tuple[object, ...]:
     """What a schema mutation must change: configuration, or a field's annotation."""
     nested = model.model_fields.get("content")
     inner = nested.annotation if nested is not None else None
-    inner_config = inner.model_config.get("extra") if isinstance(inner, type) and issubclass(
-        inner, BaseModel
-    ) else None
+    inner_config = (
+        inner.model_config.get("extra")
+        if isinstance(inner, type) and issubclass(inner, BaseModel)
+        else None
+    )
     return (
         model.model_config.get("extra"),
         tuple((name, info.annotation) for name, info in model.model_fields.items()),
@@ -715,3 +717,112 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+@dataclass(frozen=True)
+class CorrectionDDLMutant:
+    """ST03C-1 schema mutation, applied in memory without editing authoritative files."""
+
+    identifier: str
+    statement: str
+    replacement: str
+    killer: str = "test_st03c1_schema_content_before_digest"
+    guard: str = "ga_store_referential_integrity"
+
+
+def correction_ddl_mutants() -> tuple[CorrectionDDLMutant, ...]:
+    """Each new FK, CHECK and trigger gets an independent deletion mutant."""
+    statements = store_schema.schema_statements(store_schema.build_catalogue())
+    mutants: list[CorrectionDDLMutant] = []
+    for statement in statements:
+        if statement.startswith("CREATE TABLE rc13_owner_decision "):
+            for line in statement.splitlines():
+                if (
+                    ("FOREIGN KEY (act__" in line)
+                    or ("CHECK (act__" in line and "<> identity" in line)
+                    or "length(CAST(act__ObligationChangeDecision" in line
+                ):
+                    identifier = line.strip().split(" (")[0] + "-" + str(len(mutants))
+                    mutants.append(
+                        CorrectionDDLMutant(
+                            identifier,
+                            statement,
+                            statement.replace(line + "\n", "")
+                            if line.endswith(",")
+                            else statement.replace(",\n" + line, ""),
+                        )
+                    )
+            for predicate, replacement, identifier, killer in (
+                (
+                    "length(CAST(act__ObligationChangeDecision__replacement_requirement AS BLOB))",
+                    "length(act__ObligationChangeDecision__replacement_requirement)",
+                    "text-length-rejects-nul",
+                    "test_st03c1_o6_exact_unicode_and_empty_string",
+                ),
+                (
+                    "FOREIGN KEY (act__StageOutcomeDecision__context__authorization, "
+                    "act__StageOutcomeDecision__context__entry_boundary) "
+                    "REFERENCES rc17_entry_state_boundary (resolved_root, boundary__identity)",
+                    "FOREIGN KEY (act__StageOutcomeDecision__context__authorization) "
+                    "REFERENCES rc17_entry_state_boundary (resolved_root),\n    "
+                    "FOREIGN KEY (act__StageOutcomeDecision__context__entry_boundary) "
+                    "REFERENCES rc17_entry_state_boundary (boundary__identity)",
+                    "split-context-pair",
+                    "test_st03c1_context_outcome_resolution_and_instance_agreement",
+                ),
+            ):
+                assert statement.count(predicate) == 1
+                mutants.append(
+                    CorrectionDDLMutant(
+                        identifier, statement, statement.replace(predicate, replacement), killer
+                    )
+                )
+            for column in (
+                "act__DisputeResolutionDecision__member",
+                "act__ObligationExtinguishingDecision__obligation__member_finding",
+                "act__ObligationChangeDecision__obligation__member_finding",
+                "act__RevocationDecision__revoked",
+                "act__RefusalResolutionDecision__halt_occurrence",
+                "act__StageOutcomeDecision__context__authorization",
+                "act__StageOutcomeDecision__corrects__Present__value",
+            ):
+                mutants.append(
+                    CorrectionDDLMutant(
+                        "unique-" + column,
+                        statement,
+                        statement.replace("\n) STRICT", f",\n    UNIQUE ({column})\n) STRICT"),
+                        guard="ga_store_keys",
+                    )
+                )
+        elif statement.startswith(
+            ("CREATE TABLE rc32_", "CREATE TABLE rc35_", "CREATE TABLE rc36_")
+        ):
+            for line in statement.splitlines():
+                if "REFERENCES rc13_owner_decision (identity," in line:
+                    # This is the last constraint in each affected table.
+                    replacement = statement.replace(",\n" + line, "")
+                    assert replacement != statement
+                    mutants.append(
+                        CorrectionDDLMutant(
+                            "binding-" + statement.split()[2], statement, replacement
+                        )
+                    )
+            if statement.startswith("CREATE TABLE rc35_"):
+                column = (
+                    "disposition__SuspendedDisposition__established_by_event__AuthorityAmbiguityId"
+                )
+                mutants.append(
+                    CorrectionDDLMutant(
+                        "readmit-ambiguity",
+                        statement,
+                        statement.replace(" (\n", f" (\n    {column} TEXT,\n", 1),
+                    )
+                )
+        elif statement.startswith("CREATE TRIGGER") and (
+            "__prior__" in statement
+            or "__no_outcome_succession " in statement
+            or "__consumed_context " in statement
+            or ("rc13_owner_decision__instance__" in statement)
+        ):
+            mutants.append(CorrectionDDLMutant(statement.split()[2], statement, ""))
+    return tuple(mutants)

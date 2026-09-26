@@ -58,18 +58,24 @@ from __future__ import annotations
 
 from typing import Literal
 
+from pydantic import Field
+
 from gpauto.absence import Determined, KnownAbsent, Present
 from gpauto.bounds import ActionClass
+from gpauto.coordination_identity import HaltOccurrenceId
 from gpauto.identity import (
     AuthorityEnvelopeId,
     EnvelopeViolationId,
+    FindingId,
     GovernedStageId,
     OwnerAuthorizationId,
     OwnerDecisionId,
     RefusalId,
+    RemediationObligationId,
     StageOutcomeId,
     WorkerActivationId,
 )
+from gpauto.repository import ClassificationContext
 from gpauto.schema import DomainEntity, DomainValue
 from gpauto.vocabulary import (
     GitActionClass,
@@ -105,65 +111,86 @@ class AuthorizingDecision(DomainValue):
         OwnerDecisionKind.AUTHORITY_EXPANSION,
     ]
     produced_authorization: Present[OwnerAuthorizationId]
+    corrects: Determined[OwnerDecisionId]
 
 
-class NonAuthorizingDecision(DomainValue):
-    """An OWNER act that produces **no** `OwnerAuthorization` (AP-03 §11.2).
+class DisputeResolutionDecision(DomainValue):
+    """F-4: annotate one frozen-set member (ST01C-2)."""
 
-    Finding dispute, waiver, deferral, **stage-outcome acceptance**, refusal /
-    ambiguity / violation resolution, and revocation. Each is a *"No"* in AP-03 §11.2's
-    *produces an OwnerAuthorization?* column, and acceptance is its emphatic case:
-    *"No — never."*
+    kind: Literal[OwnerDecisionKind.FINDING_DISPUTE]
+    member: FindingId
+    produced_authorization: KnownAbsent
+    corrects: Determined[OwnerDecisionId]
 
-    **This is where `AP03-I25` becomes structural.** Acceptance settles the past: it
-    consumes the stage's authorization via the `StageOutcome` and confers nothing
-    forward. Pairing it with a produced authorization would represent acceptance as
-    creating new authority — the exact collapse `SO-1`, `D-AP02-03(a)`, `X-24` and
-    `MB-26` exist to prevent, and the one that *"looks adjacent in any record"*. Typing
-    the field `KnownAbsent` makes that pairing unconstructible rather than merely
-    wrong, and the `basis` it carries records what established the absence.
 
-    Nothing is collapsed to achieve it. The stage outcome is still its own entity,
-    acceptance is still a kind, next-stage authorization is still a separate act in
-    `AuthorizingDecision`, and authorization production is still the field they differ
-    in.
-    """
+class ObligationExtinguishingDecision(DomainValue):
+    """F-5: name the one obligation waived or deferred."""
 
-    kind: Literal[
-        OwnerDecisionKind.FINDING_DISPUTE,
-        OwnerDecisionKind.WAIVER,
-        OwnerDecisionKind.DEFERRAL,
-        OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE,
-        OwnerDecisionKind.REFUSAL_RESOLUTION,
-        OwnerDecisionKind.REVOCATION,
-    ]
+    kind: Literal[OwnerDecisionKind.WAIVER, OwnerDecisionKind.DEFERRAL]
+    obligation: RemediationObligationId
+    produced_authorization: KnownAbsent
+    corrects: Determined[OwnerDecisionId]
+
+
+class ObligationChangeDecision(DomainValue):
+    """F-6 / O6: verbatim replacement content; no correction chain (O6C-11)."""
+
+    kind: Literal[OwnerDecisionKind.OBLIGATION_CHANGE]
+    obligation: RemediationObligationId
+    replacement_requirement: str = Field(min_length=1)
     produced_authorization: KnownAbsent
 
 
+class RevocationDecision(DomainValue):
+    """F-7: revoke an authorization instance, never its record."""
+
+    kind: Literal[OwnerDecisionKind.REVOCATION]
+    revoked: OwnerAuthorizationId
+    produced_authorization: KnownAbsent
+    corrects: Determined[OwnerDecisionId]
+
+
+class RefusalResolutionDecision(DomainValue):
+    """F-8: resolve the exact halt occurrence; this does not settle."""
+
+    kind: Literal[OwnerDecisionKind.REFUSAL_RESOLUTION]
+    halt_occurrence: HaltOccurrenceId
+    produced_authorization: KnownAbsent
+    corrects: Determined[OwnerDecisionId]
+
+
+class StageOutcomeDecision(DomainValue):
+    """F-9: one general outcome act carrying its context and explicit value."""
+
+    kind: Literal[OwnerDecisionKind.STAGE_OUTCOME]
+    context: ClassificationContext
+    outcome: StageOutcomeDisposition
+    produced_authorization: KnownAbsent
+    corrects: Determined[OwnerDecisionId]
+
+
 class ExceptionalRecoveryDecision(DomainValue):
-    """Exceptional recovery — AP-03 §11.2's one conditional row.
+    """F-10: non-settling restart/override; produces authority only if determined."""
 
-    *"OwnerDecision; possibly + OwnerAuthorization ... Only if it authorizes work."*
-    Abandon, restart, override and accept-partial are not alike in this respect, so the
-    field stays `Determined`: present where the act authorizes work, established absent
-    where it does not. Where a recovery path resumes governed work it does so through a
-    **new** authorization — `ES-5` forbids inheriting a boundary silently — and the
-    mechanics are AP-08's.
-    """
-
-    kind: Literal[OwnerDecisionKind.EXCEPTIONAL_RECOVERY] = (
-        OwnerDecisionKind.EXCEPTIONAL_RECOVERY
-    )
+    kind: Literal[OwnerDecisionKind.EXCEPTIONAL_RECOVERY]
     produced_authorization: Determined[OwnerAuthorizationId]
+    corrects: Determined[OwnerDecisionId]
 
 
-type DecisionAct = AuthorizingDecision | NonAuthorizingDecision | ExceptionalRecoveryDecision
-"""AP-03 §11.2's classification of the OWNER acts, as three closed forms of one act.
+type DecisionAct = (
+    AuthorizingDecision
+    | DisputeResolutionDecision
+    | ObligationExtinguishingDecision
+    | ObligationChangeDecision
+    | RevocationDecision
+    | RefusalResolutionDecision
+    | StageOutcomeDecision
+    | ExceptionalRecoveryDecision
+)
+"""ST01C-2: ten normative cases, eight concrete variants, twelve decision kinds.
 
-Three forms rather than eleven, because what AP-03 §11.2 classifies is precisely
-whether the act produces an authorization — and that is the only distinction the
-produced-by relation turns on. The eleven kinds are all still nameable; each is
-admissible in exactly one form.
+SC01_V14_IMPLEMENTATION_CLARIFICATION_ONLY: self-reference is rejected at the
+RC-13 persistence boundary, not by construction-time cross-field validation.
 """
 
 

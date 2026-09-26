@@ -571,6 +571,46 @@ none is invented here.
 """
 
 
+CORRECTION_SOURCES = (
+    (
+        "ST-01-CORRECTION-OwnerDecision-obligation-referent.md",
+        130,
+        27959,
+        "bde313b2fa55f1f718bce72abe563a813e02b73275df862f86fcb72dcb7a954f",
+    ),
+    (
+        "ST-03-CORRECTION-RC13-obligation-referent-schema-v3.md",
+        148,
+        30524,
+        "4225a488627f08b4dacd4250fb7e70cd45561add2525f467077c086e6d562590",
+    ),
+)
+
+
+def correction_elements() -> dict[str, str]:
+    """Accepted corrective verification rows, read from their frozen identities.
+
+    SC01_V14_IMPLEMENTATION_CLARIFICATION_ONLY locates V14 enforcement at RC-13.
+    OBS_ST03_1_IMPLEMENTATION_DETAIL retains both member foreign keys.
+    OBS_ST03_2_IMPLEMENTATION_DETAIL requires referential fixture insertion order.
+    """
+    rows: dict[str, str] = {}
+    for name, lines, size, digest in CORRECTION_SOURCES:
+        raw = (Path("/root/.claude/plans") / name).read_bytes()
+        assert (raw.count(b"\n"), len(raw), hashlib.sha256(raw).hexdigest()) == (
+            lines,
+            size,
+            digest,
+        )
+        for line in raw.decode().splitlines():
+            match = re.match(r"^\| (SC0[13]-V\d+) \| (.*) \|$", line)
+            if match:
+                rows[match[1]] = match[2]
+    assert len(rows) == 31
+    rows["SC01-V14"] += " SC01_V14_IMPLEMENTATION_CLARIFICATION_ONLY: enforced at RC-13."
+    return rows
+
+
 def inventory() -> dict[str, str]:
     """The full in-scope element set, over every stage that has run.
 
@@ -588,6 +628,7 @@ def inventory() -> dict[str, str]:
         **st03_followon_elements(),
         **placement_elements(),
         **ST03_CONTRACT_OBLIGATIONS,
+        **correction_elements(),
     }
 
 
@@ -855,6 +896,10 @@ def main(argv: list[str] | None = None) -> int:
     if missing_owed:
         print(f"\nDEFECT — undischarged elements with no first executable stage: {missing_owed}")
         status = 1
+    corrections = [row for row in rows if row.element in correction_elements()]
+    if all(row.disposition == DISCHARGED for row in corrections):
+        print("DV-5 / DV-3: enabled for ST-04, not discharged.")
+    print("ST04_REMAINS_HALTED_PENDING_IMPLEMENTATION_REVIEW_AND_ACCEPTANCE")
     return status
 
 

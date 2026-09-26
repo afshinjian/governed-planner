@@ -54,10 +54,10 @@ from gpauto.governance import (
     AuthorizingDecision,
     EnvelopeViolation,
     ExceptionalRecoveryDecision,
-    NonAuthorizingDecision,
     OwnerDecision,
     Refusal,
     StageOutcome,
+    StageOutcomeDecision,
 )
 from gpauto.identity import (
     ActivationEffectId,
@@ -265,9 +265,7 @@ def owner_authorization() -> OwnerAuthorization:
 
 def candidate_exclusion() -> CandidateExclusion:
     return CandidateExclusion(
-        identity=CandidateExclusionId(
-            parent_resolution=RESOLUTION_ID, excluded_record=RECORD_ID
-        ),
+        identity=CandidateExclusionId(parent_resolution=RESOLUTION_ID, excluded_record=RECORD_ID),
         failing_attribute=RaAttribute.RA_05_BASELINE,
     )
 
@@ -438,17 +436,13 @@ def empty_frozen_finding_set() -> FrozenFindingSet:
 
 def remediation_obligation() -> RemediationObligation:
     return RemediationObligation(
-        identity=RemediationObligationId(
-            parent_frozen_set=FROZEN_SET_ID, member_finding=FINDING_ID
-        )
+        identity=RemediationObligationId(parent_frozen_set=FROZEN_SET_ID, member_finding=FINDING_ID)
     )
 
 
 def closure_assessment() -> ClosureAssessment:
     return ClosureAssessment(
-        identity=ClosureAssessmentId(
-            assessed_finding=FINDING_ID, closure_activation=ACTIVATION_ID
-        )
+        identity=ClosureAssessmentId(assessed_finding=FINDING_ID, closure_activation=ACTIVATION_ID)
     )
 
 
@@ -463,8 +457,11 @@ def owner_decision() -> OwnerDecision:
     return OwnerDecision(
         identity=DECISION_ID,
         stage=STAGE_ID,
-        act=NonAuthorizingDecision(
-            kind=OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE,
+        act=StageOutcomeDecision(
+            kind=OwnerDecisionKind.STAGE_OUTCOME,
+            context=classification_context(),
+            outcome=StageOutcomeDisposition.ACCEPTED,
+            corrects=KnownAbsent(basis="original"),
             produced_authorization=KnownAbsent(
                 basis="acceptance settles the past and confers nothing forward"
             ),
@@ -479,9 +476,8 @@ def authorizing_owner_decision() -> OwnerDecision:
         stage=STAGE_ID,
         act=AuthorizingDecision(
             kind=OwnerDecisionKind.NEXT_STAGE_AUTHORIZATION,
-            produced_authorization=Present[OwnerAuthorizationId](
-                value=OTHER_AUTHORIZATION_ID
-            ),
+            corrects=KnownAbsent(basis="original"),
+            produced_authorization=Present[OwnerAuthorizationId](value=OTHER_AUTHORIZATION_ID),
         ),
     )
 
@@ -492,7 +488,9 @@ def exceptional_recovery_decision() -> OwnerDecision:
         identity=OwnerDecisionId(value="recovery-decision-token"),
         stage=STAGE_ID,
         act=ExceptionalRecoveryDecision(
-            produced_authorization=KnownAbsent(basis="the recovery act abandons the stage")
+            kind=OwnerDecisionKind.EXCEPTIONAL_RECOVERY,
+            corrects=KnownAbsent(basis="original"),
+            produced_authorization=KnownAbsent(basis="the recovery override grants no work"),
         ),
     )
 
@@ -587,3 +585,74 @@ EVERY_ENTITY: tuple[tuple[str, DomainEntity], ...] = (
     ("EnvelopeViolation", envelope_violation()),
 )
 """Every AP-03 entity this stage implements, one well-formed instance each."""
+
+
+def corrective_decisions() -> tuple[OwnerDecision, ...]:
+    """All twelve accepted kinds with complete referents (ST01C-2 F-1..F-10)."""
+    from gpauto.coordination_identity import HaltOccurrenceId
+    from gpauto.governance import (
+        DecisionAct,
+        DisputeResolutionDecision,
+        ObligationChangeDecision,
+        ObligationExtinguishingDecision,
+        RefusalResolutionDecision,
+        RevocationDecision,
+    )
+
+    absent = KnownAbsent(basis="original act; produces none")
+    acts: list[DecisionAct] = [
+        AuthorizingDecision(
+            kind=kind, produced_authorization=Present(value=AUTHORIZATION_ID), corrects=absent
+        )
+        for kind in (
+            OwnerDecisionKind.STAGE_ENTRY_AUTHORIZATION,
+            OwnerDecisionKind.NEXT_STAGE_AUTHORIZATION,
+            OwnerDecisionKind.SCOPE_CHANGE,
+            OwnerDecisionKind.AUTHORITY_EXPANSION,
+        )
+    ]
+    acts.extend(
+        [
+            DisputeResolutionDecision(
+                kind=OwnerDecisionKind.FINDING_DISPUTE,
+                member=FINDING_ID,
+                produced_authorization=absent,
+                corrects=absent,
+            ),
+            *[
+                ObligationExtinguishingDecision(
+                    kind=kind,
+                    obligation=remediation_obligation().identity,
+                    produced_authorization=absent,
+                    corrects=absent,
+                )
+                for kind in (OwnerDecisionKind.WAIVER, OwnerDecisionKind.DEFERRAL)
+            ],
+            ObligationChangeDecision(
+                kind=OwnerDecisionKind.OBLIGATION_CHANGE,
+                obligation=remediation_obligation().identity,
+                replacement_requirement="  verbatim\0漢字\n",
+                produced_authorization=absent,
+            ),
+            RevocationDecision(
+                kind=OwnerDecisionKind.REVOCATION,
+                revoked=AUTHORIZATION_ID,
+                produced_authorization=absent,
+                corrects=absent,
+            ),
+            RefusalResolutionDecision(
+                kind=OwnerDecisionKind.REFUSAL_RESOLUTION,
+                halt_occurrence=HaltOccurrenceId(value="0" * 32),
+                produced_authorization=absent,
+                corrects=absent,
+            ),
+            owner_decision().act,
+            exceptional_recovery_decision().act,
+        ]
+    )
+    return tuple(
+        OwnerDecision(
+            identity=OwnerDecisionId(value=f"decision-{act.kind.value}"), stage=STAGE_ID, act=act
+        )
+        for act in acts
+    )

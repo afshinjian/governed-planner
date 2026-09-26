@@ -144,10 +144,11 @@ from gpauto.evidence import (
 from gpauto.governance import (
     AuthorizingDecision,
     EnvelopeViolation,
-    NonAuthorizingDecision,
     OwnerDecision,
     Refusal,
+    RefusalResolutionDecision,
     StageOutcome,
+    StageOutcomeDecision,
 )
 from gpauto.identity import (
     ActivationEffectId,
@@ -231,6 +232,7 @@ class World:
     ingest: list[IngestRecord]
     units: list[tuple[BaseModel, ...]]
     handles: dict[str, BaseModel] = field(default_factory=dict)
+    deferred_ingest: dict[int, tuple[OwnerDecision, ...]] = field(default_factory=dict)
 
     def records(self) -> list[BaseModel]:
         return [record for unit in self.units for record in unit]
@@ -250,8 +252,6 @@ class Frame:
     root: OwnerAuthorizationId
     other_root: OwnerAuthorizationId
     records: tuple[AuthorizationRecord, ...]
-    accept: OwnerDecision
-    resolve: OwnerDecision
 
 
 def bounds(frame: Frame) -> AuthorityBounds:
@@ -303,8 +303,6 @@ def frame(tag: str = "") -> tuple[Frame, list[IngestRecord]]:
         root,
         other_root,
         (),
-        _decision(stage, "accept"),
-        _decision(stage, "resolve"),
     )
 
     def record(name: str, authorization: OwnerAuthorizationId) -> AuthorizationRecord:
@@ -336,14 +334,13 @@ def frame(tag: str = "") -> tuple[Frame, list[IngestRecord]]:
         root,
         other_root,
         records,
-        partial.accept,
-        partial.resolve,
     )
     authorizing = OwnerDecision(
         identity=OwnerDecisionId(value=f"authorize{tag}"),
         stage=stage,
         act=AuthorizingDecision(
             kind=OwnerDecisionKind.STAGE_ENTRY_AUTHORIZATION,
+            corrects=ABSENT,
             produced_authorization=Present[OwnerAuthorizationId](value=root),
         ),
     )
@@ -355,25 +352,8 @@ def frame(tag: str = "") -> tuple[Frame, list[IngestRecord]]:
         contract,
         *records,
         authorizing,
-        result.accept,
-        result.resolve,
     ]
     return result, supplied
-
-
-def _decision(stage: GovernedStageId, name: str) -> OwnerDecision:
-    absent = KnownAbsent(basis="settles, confers nothing")
-    if name == "accept":
-        act = NonAuthorizingDecision(
-            kind=OwnerDecisionKind.STAGE_OUTCOME_ACCEPTANCE, produced_authorization=absent
-        )
-    else:
-        act = NonAuthorizingDecision(
-            kind=OwnerDecisionKind.REFUSAL_RESOLUTION, produced_authorization=absent
-        )
-    return OwnerDecision(
-        identity=OwnerDecisionId(value=f"{name}-{stage.value}"), stage=stage, act=act
-    )
 
 
 def m1(
@@ -449,6 +429,7 @@ def world(tag: str = "") -> World:
     f, supplied = frame(tag)
     units: list[tuple[BaseModel, ...]] = []
     h: dict[str, BaseModel] = {}
+    deferred: dict[int, tuple[OwnerDecision, ...]] = {}
 
     units.append((identify_stage_contract(f.content),))
 
@@ -799,16 +780,41 @@ def world(tag: str = "") -> World:
     )
     g1 = m4(f.root, AuthorizationDisposition.SUSPENDED, M4Edge.G1, None)
     units.append((halt, s9, suspension, g1))
+    resolve = OwnerDecision(
+        identity=OwnerDecisionId(value=f"resolve-{f.stage.value}"),
+        stage=f.stage,
+        act=RefusalResolutionDecision(
+            kind=OwnerDecisionKind.REFUSAL_RESOLUTION,
+            halt_occurrence=halt.identity,
+            produced_authorization=ABSENT,
+            corrects=ABSENT,
+        ),
+    )
+    # OBS_ST03_2_IMPLEMENTATION_DETAIL: the halt already exists before ingest.
+    deferred[len(units)] = (resolve,)
     resolution_record = GovernanceEventResolution(
         identity=minted(GovernanceEventResolutionId),
         halt_occurrence=halt.identity,
-        decision=f.resolve.identity,
+        decision=resolve.identity,
     )
     units.append((resolution_record,))
+    accept = OwnerDecision(
+        identity=OwnerDecisionId(value=f"accept-{f.stage.value}"),
+        stage=f.stage,
+        act=StageOutcomeDecision(
+            kind=OwnerDecisionKind.STAGE_OUTCOME,
+            context=context,
+            outcome=StageOutcomeDisposition.ACCEPTED,
+            produced_authorization=ABSENT,
+            corrects=ABSENT,
+        ),
+    )
+    # The context pair has existed since the RC-17 unit. This is fixture order only.
+    deferred[len(units)] = (accept,)
     outcome = StageOutcome(
         identity=StageOutcomeId(parent_stage=f.stage, local_discriminator=OUTCOME_DISCRIMINATOR),
         disposition=StageOutcomeDisposition.ACCEPTED,
-        established_by=f.accept.identity,
+        established_by=accept.identity,
     )
     consumption = DispositionEstablishingRecord(
         identity=DispositionRecordId(authorization=f.root, discriminator=discriminator()),
@@ -843,13 +849,14 @@ def world(tag: str = "") -> World:
         cycle_occurrence=in_cycle,
     )
     units.append((later_package,))
-    return World(supplied, units, h)
+    return World(supplied, units, h, deferred)
 
 
 def populate(store: CoordinationStore, built: World) -> None:
     """Ingest as the outside party, then create every unit through the store."""
     ingest(store.path, built.ingest)
-    for unit in built.units:
+    for index, unit in enumerate(built.units):
+        ingest(store.path, built.deferred_ingest.get(index, ()))
         store.create_unit(unit)  # type: ignore[arg-type]
 
 

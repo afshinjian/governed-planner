@@ -83,6 +83,7 @@ FORBIDDEN_OPERATION_WORDS = (
 
 
 @pytest.mark.traces("ST03-G1")
+@pytest.mark.traces("SC03-V14")
 def test_ruff_inspects_every_st03_module_and_passes() -> None:
     """`ruff` over the configured GP-AUTO scope lists every ST-03 file and finds nothing."""
     import subprocess
@@ -107,6 +108,7 @@ def test_ruff_inspects_every_st03_module_and_passes() -> None:
 
 
 @pytest.mark.traces("ST03-G1")
+@pytest.mark.traces("SC03-V14")
 def test_mypy_strict_type_checks_every_st03_module(tmp_path: Path) -> None:
     """`mypy --strict` actually type-checks each ST-03 module, and passes."""
     report_dir = tmp_path / "report"
@@ -123,6 +125,7 @@ def test_mypy_strict_type_checks_every_st03_module(tmp_path: Path) -> None:
 
 
 @pytest.mark.traces("ST03-G1")
+@pytest.mark.traces("SC03-V14")
 def test_the_decode_gate_inspects_every_st03_module_and_finds_nothing() -> None:
     """`DC-1`, `DC-2`: the store decodes JSON only through the ST-02 codec — its only JSON
     record, `RC-12`, is read by `codec.decode_authorization_record` — and no ST-03 module
@@ -256,3 +259,53 @@ def test_every_st03_contract_and_frozen_row_carries_discharging_evidence() -> No
         assert rows[element].disposition == DISCHARGED, element
         assert rows[element].implementing == GPAUTO_STAGE, element
     assert "AP11-I72" not in rows
+
+
+@pytest.mark.traces("SC03-V14", "ST03-A1")
+def test_correction_sources_prerequisites_and_traceability_are_pinned() -> None:
+    """Accepted identities remain untouched; correction rows come from those sources."""
+    elements = traceability.correction_elements()
+    assert set(elements) == {
+        *(f"SC01-V{n}" for n in range(1, 18)),
+        *(f"SC03-V{n}" for n in range(1, 15)),
+    }
+    evidence = traceability.declared_evidence()
+    assert set(elements) <= set(evidence)
+    for name, lines, size, digest in (
+        (
+            "AP-02-AMENDMENT-V01-accept-partial-stage-outcome.md",
+            51,
+            4621,
+            "0b920707e5b01a88b0cd10cab0fdf918f2c4e61a82a08c699fef933164affc7f",
+        ),
+        (
+            "AP-04-AMENDMENT-S10-accept-partial-stage-outcome.md",
+            55,
+            4830,
+            "26fc19097227d6bba5b161a4331834d289e2fb708de433d13e538bf816022ede",
+        ),
+        (
+            "AP-09-AMENDMENT-SA9-1-stage-outcome-decision-kind.md",
+            94,
+            14468,
+            "64dad3a83a064f55eedded1108aa09812abb08f1778102c65f44400048de037b",
+        ),
+        (
+            "AP-03-AMENDMENT-stage-outcome-decision-and-accept-partial.md",
+            71,
+            11244,
+            "3df51f702c7baa56cc180a93d7e3b56b98673ca26b54c055f94e5b51aab057c3",
+        ),
+        (
+            "AP-05-AP-07-AMENDMENT-O6-obligation-change-content.md",
+            71,
+            12250,
+            "f0558ae4f0e850fabcf6ab96af92d0c8d06bcf038f250a274f155087c6583282",
+        ),
+    ):
+        raw = (Path("/root/.claude/plans") / name).read_bytes()
+        assert (raw.count(b"\n"), len(raw), hashlib.sha256(raw).hexdigest()) == (
+            lines,
+            size,
+            digest,
+        )

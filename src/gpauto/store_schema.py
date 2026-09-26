@@ -111,7 +111,7 @@ from gpauto.coordination_records import (
     WorkerActivationRecord,
 )
 from gpauto.evidence import ArtifactProduction
-from gpauto.governance import OwnerDecision, StageOutcome
+from gpauto.governance import DecisionAct, OwnerDecision, StageOutcome
 from gpauto.identity import DependentIdentity, MintedIdentity, OpaqueIdentity, OwnerAuthorizationId
 from gpauto.minting import MINTED_VALUE_LENGTH
 from gpauto.repository import ClassificationContext, UnaccountedMutation
@@ -124,13 +124,13 @@ from gpauto.scope_frame import (
     StageContract,
 )
 
-SCHEMA_VERSION: Final[str] = "gpauto.coordination-store/2"
+SCHEMA_VERSION: Final[str] = "gpauto.coordination-store/3"
 """The schema's identity (`SRB11-12`). A different table or constraint set is a different
-version (`SRB11-13`); nothing migrates between versions (`VM-8`). Version 2 keys `RC-36`
-on the whole `StageOutcomeId` — parent stage **and** local discriminator (`ID-8`); the
-unaccepted version-1 candidate keyed it on the parent stage alone, and is refused."""
+version (`SRB11-13`); nothing migrates between versions (`VM-8`). Version 3 realizes
+ST01C-2 decision referents and ST03C-1 bindings. Both v1 and v2 are stale and refused."""
 
-STORAGE_VERSION: Final[int] = 2
+
+STORAGE_VERSION: Final[int] = 3
 """The physical marker persisted in `PRAGMA user_version`, following the frozen
 `governance.sqlite` pattern (`EB-13`). It is paired with an exact structural comparison,
 because `user_version` defaults to 0 and alone cannot tell *new* from *old*."""
@@ -513,7 +513,28 @@ def catalogue_specs() -> tuple[TableSpec, ...]:
             "identity",
             json_payload=True,
         ),
-        TableSpec("RC-13", "rc13_owner_decision", OwnerDecision, ingest, WriteClass.I, "identity"),
+        TableSpec(
+            "RC-13",
+            "rc13_owner_decision",
+            OwnerDecision,
+            ingest,
+            WriteClass.I,
+            "identity",
+            # OBS_ST03_1_IMPLEMENTATION_DETAIL: retain the generated RC-25 FK as well.
+            references=(
+                Reference(("act__DisputeResolutionDecision__member",), members, ("element",)),
+            ),
+            checks=(
+                "act__ObligationChangeDecision__replacement_requirement IS NULL OR "
+                "length(CAST(act__ObligationChangeDecision__replacement_requirement AS BLOB)) > 0",
+                *(
+                    f"act__{form.__name__}__corrects__Present__value IS NULL OR "
+                    f"act__{form.__name__}__corrects__Present__value <> identity"
+                    for form in get_args(DecisionAct.__value__)
+                    if "corrects" in form.model_fields
+                ),
+            ),
+        ),
         TableSpec(
             "RC-14",
             "rc14_root_resolution",
@@ -694,6 +715,13 @@ def catalogue_specs() -> tuple[TableSpec, ...]:
             coordination,
             w1,
             "identity",
+            references=(
+                Reference(
+                    ("decision", "halt_occurrence"),
+                    "rc13_owner_decision",
+                    ("identity", "act__RefusalResolutionDecision__halt_occurrence"),
+                ),
+            ),
         ),
         TableSpec(
             "RC-33",
@@ -754,6 +782,16 @@ def catalogue_specs() -> tuple[TableSpec, ...]:
             coordination,
             w1,
             "identity",
+            references=(
+                Reference(
+                    (
+                        "disposition__RevokedDisposition__established_by_decision",
+                        "identity__authorization",
+                    ),
+                    "rc13_owner_decision",
+                    ("identity", "act__RevocationDecision__revoked"),
+                ),
+            ),
         ),
         TableSpec(
             "RC-36",
@@ -762,6 +800,13 @@ def catalogue_specs() -> tuple[TableSpec, ...]:
             coordination,
             w1,
             "identity",  # guard:ga_store_keys (ID-8)
+            references=(
+                Reference(
+                    ("established_by", "identity__parent_stage", "disposition"),
+                    "rc13_owner_decision",
+                    ("identity", "stage", "act__StageOutcomeDecision__outcome"),
+                ),
+            ),
         ),
         TableSpec(
             "RC-37",
@@ -1144,6 +1189,47 @@ def _trigger_ddl(layout: Layout, instances: list[str]) -> Iterator[str]:
             f"WHEN NEW.{reference} IS NOT NULL AND NOT EXISTS "
             f"(SELECT 1 FROM {table} WHERE {column} = NEW.{reference}) "
             f"BEGIN SELECT RAISE(ABORT, 'GPAUTO_DANGLING_INSTANCE: {name}.{reference}'); END"
+        )
+
+    if name == "rc13_owner_decision":
+        # SC03-7b: native FKs alone allow a forward target in a multi-row INSERT.
+        for form in get_args(DecisionAct.__value__):
+            if "corrects" not in form.model_fields:
+                continue
+            value = f"act__{form.__name__}__corrects__Present__value"
+            yield (
+                f"CREATE TRIGGER {name}__prior__{form.__name__} BEFORE INSERT ON {name} "
+                f"WHEN NEW.{value} IS NOT NULL AND NOT EXISTS "
+                f"(SELECT 1 FROM {name} WHERE identity = NEW.{value}) "
+                "BEGIN SELECT RAISE(ABORT, 'GPAUTO_CORRECTION_TARGET_NOT_PRIOR'); END"
+            )
+        # SC03-7a / SA9-2: exactly this structural pairing, in both directions.
+        yield (
+            f"CREATE TRIGGER {name}__no_outcome_succession BEFORE INSERT ON {name} "
+            "WHEN (NEW.act__AuthorizingDecision__kind = 'NEXT_STAGE_AUTHORIZATION' AND EXISTS "
+            f"(SELECT 1 FROM {name} WHERE identity = "
+            "NEW.act__AuthorizingDecision__corrects__Present__value "
+            "AND act__StageOutcomeDecision__kind = 'STAGE_OUTCOME')) OR "
+            "(NEW.act__StageOutcomeDecision__kind = 'STAGE_OUTCOME' AND EXISTS "
+            f"(SELECT 1 FROM {name} WHERE identity = "
+            "NEW.act__StageOutcomeDecision__corrects__Present__value "
+            "AND act__AuthorizingDecision__kind = 'NEXT_STAGE_AUTHORIZATION')) "
+            "BEGIN SELECT RAISE(ABORT, 'GPAUTO_OUTCOME_SUCCESSION'); END"
+        )
+    if name == "rc35_disposition_establishing_record":
+        # SC03-10a: consumption names the instance of the establishing F-9 context.
+        yield (
+            f"CREATE TRIGGER {name}__consumed_context BEFORE INSERT ON {name} "
+            "WHEN NEW.disposition__kind = 'ConsumedDisposition' AND NOT EXISTS "
+            "(SELECT 1 FROM rc36_stage_outcome AS outcome JOIN rc13_owner_decision AS decision "
+            "ON decision.identity = outcome.established_by "
+            "WHERE outcome.identity__parent_stage = "
+            "NEW.disposition__ConsumedDisposition__established_by_outcome__parent_stage "
+            "AND outcome.identity__local_discriminator = "
+            "NEW.disposition__ConsumedDisposition__established_by_outcome__local_discriminator "
+            "AND decision.act__StageOutcomeDecision__context__authorization = "
+            "NEW.identity__authorization) "
+            "BEGIN SELECT RAISE(ABORT, 'GPAUTO_CONSUMED_CONTEXT'); END"
         )
 
 
