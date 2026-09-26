@@ -89,7 +89,7 @@ IMPLEMENTING_STAGE = "GP-AUTO-ST-01"
 """The stage of every test module that declares no `GPAUTO_STAGE` — ST-01's, which
 predate the declaration. Later stages' modules always declare theirs."""
 
-STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02", "GP-AUTO-ST-03")
+STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02", "GP-AUTO-ST-03", "GP-AUTO-ST-04")
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
 
@@ -117,6 +117,11 @@ AP10_SHA256 = "d28a828b59064a10d45c32a28478c2f762567aa34034caff14397bcb2ddb4a3b"
 Like AP-07's, these three are recorded in the test tree: `GP-AUTO-ST-03`'s authorized
 scope is its store modules and tests, with no tool-configuration clause."""
 
+AP11_ST04_PATH = Path("/root/.claude/plans/AP-11-AMENDMENT-ST04-derivation-ownership.md")
+AP11_ST04_SHA256 = "b23edb0935e5379fc22fa9b14ed19b5750d39b85252558799115fd8ab264c512"
+"""The accepted AP-11 ST-04 derivation-ownership amendment, 74 lines / 17480 bytes. Held in
+the test tree like the others: `GP-AUTO-ST-04`'s scope is its derivations module and tests."""
+
 AP07_ROW = re.compile(r"^\|\s*((?:ID|EQ|DC)-\d+|VM-11)\s*\|\s*(.+?)\s*\|\s*$")
 AP07_RECORD_ROW = re.compile(r"^\|\s*(RC-\d+)\s*\|(.+)\|\s*$")
 AP07_EQ0 = re.compile(r"^> \*\*`(EQ-0)`\.\*\*\s*(.+?)\s*$")
@@ -136,6 +141,26 @@ frozen text rather than transcribed.
 ST03_AP07_RECORD_ELEMENTS = tuple(f"RC-{number}" for number in range(10, 42))
 """The AP-07 §3.2 record classes `GP-AUTO-ST-03` realizes — every one, `RC-10` … `RC-41`
 (`SRB11-1`, `SRB11-31`). `RC-21` is among them: owed by ST-03 since ST-02's acceptance."""
+
+AP07_DERIVATION_ROW = re.compile(r"^\|\s*(DV-\d+)\s*\|(.+)\|\s*$")
+ST04_AMENDMENT_ROW = re.compile(r"^\|\s*(?:\*\*)?(DO11-\d+|AP11-I74)(?:\*\*)?\s*\|(.+)\|\s*$")
+
+ST04_AP07_DERIVATION_ELEMENTS = (
+    "DV-1", "DV-2", "DV-3", "DV-5", "DV-6", "DV-7", "DV-8", "DV-12", "DV-13", "DV-14",
+)  # fmt: skip
+"""The AP-07 §8 rows `GP-AUTO-ST-04` implements (`DO11-1`), and the three rules that bind
+it for every derivation (superseding *Frozen inputs* cell). **Not** `DV-4`, `DV-9`,
+`DV-10` or `DV-11`: `DV-4` is split, and its evaluation portion is ST-06's (`DO11-2`,
+`DO11-3`); `DV-9`/`DV-10` are ST-15's (`DO11-4`); `DV-11` is ST-02's (`DO11-6`). A row no
+stage that has run can dispose is not parsed — the discipline `ST02_AP07_RECORD_ELEMENTS`
+set — and ST-04's own share of each is carried by the `DO11-*` rows below instead."""
+
+ST04_AMENDMENT_ELEMENTS = (
+    "DO11-1", "DO11-2", "DO11-3", "DO11-4", "DO11-5", "DO11-6", "DO11-7", "DO11-8", "AP11-I74",
+)  # fmt: skip
+"""The accepted ST-04 amendment's rows that bind ST-04's code. `DO11-9`…`DO11-11` state
+that other contracts, artifacts and the resumption act are unchanged; they are not
+implementation obligations and are not rows here, as ST-03 treated its `SRB11-*` rows."""
 
 AMENDMENT_ROW = re.compile(r"^\|\s*((?:IV11|AP11-I)-?\d+)\s*\|(.+)\|\s*$")
 ST03_AMENDMENT_ELEMENTS = (
@@ -281,6 +306,38 @@ def st03_followon_elements() -> dict[str, str]:
     return _amendment_rows(
         AP11_ST03_FOLLOWON_PATH, AP11_ST03_FOLLOWON_SHA256, ST03_FOLLOWON_ELEMENTS
     )
+
+
+def ap07_derivation_elements() -> dict[str, str]:
+    """The `DV-*` rows ST-04 implements, from frozen AP-07 §8 (`DO11-1`)."""
+    found: dict[str, str] = {}
+    for line in verified_text(AP07_PATH, AP07_SHA256).splitlines():
+        matched = AP07_DERIVATION_ROW.match(line)
+        if matched is not None and matched.group(1) in ST04_AP07_DERIVATION_ELEMENTS:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate derivation row in frozen AP-07: {matched[1]}")
+            columns = [column.strip() for column in matched.group(2).split("|")]
+            found[matched.group(1)] = " / ".join(column for column in columns if column)
+    missing = set(ST04_AP07_DERIVATION_ELEMENTS) - set(found)
+    if missing:
+        raise FrozenSourceError(f"AP-07 derivation rows not found: {sorted(missing)}")
+    return {element: found[element] for element in ST04_AP07_DERIVATION_ELEMENTS}
+
+
+def st04_amendment_elements() -> dict[str, str]:
+    """`DO11-1`…`DO11-8` and `AP11-I74`, from the accepted ST-04 amendment."""
+    found: dict[str, str] = {}
+    for line in verified_text(AP11_ST04_PATH, AP11_ST04_SHA256).splitlines():
+        matched = ST04_AMENDMENT_ROW.match(line)
+        if matched is not None and matched.group(1) in ST04_AMENDMENT_ELEMENTS:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate row in the ST-04 amendment: {matched[1]}")
+            columns = [column.strip() for column in matched.group(2).split("|")]
+            found[matched.group(1)] = " / ".join(column for column in columns if column)
+    missing = set(ST04_AMENDMENT_ELEMENTS) - set(found)
+    if missing:
+        raise FrozenSourceError(f"ST-04 amendment rows not found: {sorted(missing)}")
+    return {element: found[element] for element in ST04_AMENDMENT_ELEMENTS}
 
 
 def placement_elements() -> dict[str, str]:
@@ -447,6 +504,39 @@ ST03_CONTRACT_OBLIGATIONS: dict[str, str] = {
 """Labels for `GP-AUTO-ST-03`'s own contract rows (AP-11 §16 as replaced by the ST-03
 amendment §11.1 and the follow-on §3) — as the ST-01 and ST-02 labels, **not** a second
 normative inventory: the normative rows are parsed from the frozen artifacts above."""
+
+ST04_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST04-D1": "Deliverable: DV-1, DV-2, DV-3, DV-5, DV-6, DV-7, DV-8 as pure functions over "
+    "records, recomputable without re-observing, re-running or a clock.",
+    "ST04-D2": "Deliverable: DV-4's liveness portion, record-derived (DO11-2).",
+    "ST04-D3": "Deliverable: DV-4's recorded-eligibility portion, read from the completing "
+    "M1 entry (DO11-2, SRF11-1).",
+    "ST04-T1": "Test: each owned derivation and portion reproduces deterministically from "
+    "its authoritative record inputs alone.",
+    "ST04-T2": "Test: position derived by predecessor reference.",
+    "ST04-T3": "Test: outstanding halt occurrences derived.",
+    "ST04-T4": "Test: closure scope and CYCLE_BOUND derived from assessments and membership.",
+    "ST04-T5": "Test: obligation force derived per DV-5 from an extinguishing OwnerDecision "
+    "naming the obligation, never from a stage-level or non-naming decision.",
+    "ST04-T6": "Test: DV-11 reached only through ST-02's function by import; no second "
+    "comparator; no stored DV-11 form.",
+    "ST04-T7": "Test: DV-9 and DV-10 — structural absence from authoritative storage only.",
+    "ST04-T8": "Test: ST-06's DV-4 portion — no RA-00...RA-09 executed; own portion only.",
+    "ST04-N1": "Negative: no stored form of any DV-1...DV-11 (PV11-12), globally.",
+    "ST04-N2": "Negative: no derivation reads a clock, insertion order or row identifier "
+    "(NV11-11).",
+    "ST04-N3": "Negative: an index storing a derivation's result is absent.",
+    "ST04-N4": "Negative: derivation definitions are not versioned data (VM-4).",
+    "ST04-M1": "Mutation: each input-selection guard in the derivations ST-04 implements.",
+    "ST04-R1": "Restart/persistence: each owned derivation reproduces identically after "
+    "process restart from the same persisted records; nothing derived was persisted.",
+    "ST04-G1": "Static gate: the GP-AUTO gates extended to the derivations module (SD11-12b).",
+    "ST04-A1": "Acceptance: every owned derivation recomputable and every DV-1...DV-11 "
+    "stored nowhere.",
+}
+"""Labels for `GP-AUTO-ST-04`'s own contract rows, as the AP-11 ST-04 amendment §2
+supersedes them — **not** a second normative inventory: the normative rows are the
+AP-07 §8 and amendment rows parsed above."""
 
 OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
     "ID-3": "GP-AUTO-ST-03",
@@ -629,6 +719,9 @@ def inventory() -> dict[str, str]:
         **placement_elements(),
         **ST03_CONTRACT_OBLIGATIONS,
         **correction_elements(),
+        **ap07_derivation_elements(),
+        **st04_amendment_elements(),
+        **ST04_CONTRACT_OBLIGATIONS,
     }
 
 
@@ -896,10 +989,11 @@ def main(argv: list[str] | None = None) -> int:
     if missing_owed:
         print(f"\nDEFECT — undischarged elements with no first executable stage: {missing_owed}")
         status = 1
-    corrections = [row for row in rows if row.element in correction_elements()]
-    if all(row.disposition == DISCHARGED for row in corrections):
-        print("DV-5 / DV-3: enabled for ST-04, not discharged.")
-    print("ST04_REMAINS_HALTED_PENDING_IMPLEMENTATION_REVIEW_AND_ACCEPTANCE")
+    by_element = {row.element: row for row in rows}
+    for element in ("DV-3", "DV-5"):
+        row = by_element[element]
+        print(f"{element}: {row.disposition} by {row.implementing}.")
+    print("ST04_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
     return status
 
 

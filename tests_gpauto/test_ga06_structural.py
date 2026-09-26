@@ -58,6 +58,11 @@ ST03_OPERATION_MODULES = frozenset({"minting.py", "store_schema.py", "store.py"}
 (AP-11 ST-03 amendment §11.1, *Authorized scope*) — and no others. Its vocabulary,
 identity and record modules declare no function, and `test_ga16` asserts that."""
 
+ST04_OPERATION_MODULES = frozenset({"derivations.py"})
+"""The module `GP-AUTO-ST-04` was authorized to add operations in — its derivations module
+(AP-11 §16 ST-04, *Authorized scope*) — and no other. Its functions are pinned in
+`test_ga24`."""
+
 NEVER_AN_ENTITY = {
     "AuthorityCeiling": "merged into the AuthorityBounds value carried by RA-07 (AP-03 §2.2)",
     "DecisionPackage": "demoted to a derivation with no identity (AP-03 §2.5, AP03-I31)",
@@ -182,7 +187,7 @@ def test_the_package_declares_no_function_at_all() -> None:
     """
     offenders: list[str] = []
     for path in source_files():
-        if path.name in ST02_OPERATION_MODULES | ST03_OPERATION_MODULES:
+        if path.name in ST02_OPERATION_MODULES | ST03_OPERATION_MODULES | ST04_OPERATION_MODULES:
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

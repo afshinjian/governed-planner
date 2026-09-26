@@ -28,6 +28,24 @@ by the root-resolution and key constraints its amendments fix, and each a **line
 * `ga_store_stale_schema` — `src/gpauto/store.py`: the version and structure refusals;
   guarantees `AP11-I69`, `EQ-9`.
 
+**From `GP-AUTO-ST-04`, one more guard**, the one its frozen Mutation cell names as
+superseded by the ST-04 amendment: *"each input-selection guard in the derivations and
+portions ST-04 implements, where a wrong input would still produce a plausible value"* —
+and nothing for `DV-9`, `DV-10`, `RA-00`…`RA-09` or a `DV-11` comparator (`DO11-4`,
+`DO11-6`):
+
+* `ga_derivation_input` — `src/gpauto/derivations.py`: every filter by which a derivation
+  selects its input records — the read's admission (decodability, agreement of its two
+  passes), subject, epoch, activation, stratum, completion, per-effect agreement of
+  envelope determinations, verdict, obligation record and set, decision kind and
+  referent, unresolved suspension, halt event, completing entry, attested member,
+  occurrence link, and the keyed selections of an activation's envelope, its stratum, an
+  effect's judgement and the epoch's reached entry; a **line** guard, one mutant per
+  tagged line; guarantees `DV-1`, `DV-2`, `DV-3`, `DV-5`, `DV-6`, `DV-7`, `DV-8`,
+  `DO11-1`, `DO11-2`. Every other predicate in the module is inventoried, with the reason
+  it carries no mutant, in `ST04_UNMUTATED_PREDICATES`; every keyed access, in
+  `ST04_KEYED_SELECTIONS` or `ST04_UNQUALIFIED_KEYED_ACCESSES`.
+
 **No harness is installed** (`PG11-2` is undischarged, and a tool install would be a
 halt). This module is test code that performs exactly the two kinds of mutation the
 obligation needs, and nothing more:
@@ -81,7 +99,7 @@ if __package__ in (None, ""):  # pragma: no cover - only when run as a script
 import pytest
 from pydantic import BaseModel, ConfigDict, create_model
 
-from gpauto import codec, equivalence, store, store_schema
+from gpauto import codec, derivations, equivalence, store, store_schema
 from gpauto.authorization import AuthorizationRecord
 from gpauto.preimage import ArtifactContentPreimage, StageContractContent, StageContractPreimage
 
@@ -150,6 +168,12 @@ GUARDS: Final[dict[str, Guard]] = {
         module=store,
         kind="line",
         guarantees=("AP11-I69", "EQ-9"),
+    ),
+    "ga_derivation_input": Guard(
+        identifier="ga_derivation_input",
+        module=derivations,
+        kind="line",
+        guarantees=("DV-1", "DV-2", "DV-3", "DV-5", "DV-6", "DV-7", "DV-8", "DO11-1", "DO11-2"),
     ),
 }
 
@@ -451,6 +475,571 @@ ST03_MUTANTS: Final[tuple[LineMutant, ...]] = (
     ),
 )
 
+DERIVATION_TESTS = "tests_gpauto/test_ga21_st04_derivations.py"
+
+
+def _derivation_mutant(
+    identifier: str, description: str, original: str, replacement: str, killer: str
+) -> LineMutant:
+    return LineMutant(
+        "ga_derivation_input",
+        identifier,
+        description,
+        original,
+        replacement,
+        f"{DERIVATION_TESTS}::{killer}",
+    )
+
+
+ST04_MUTANTS: Final[tuple[LineMutant, ...]] = (
+    _derivation_mutant(
+        "DI-01-m1-any-subject",
+        "an M1 chain takes every resolution's entries",
+        "if e.identity.resolution == resolution",
+        "if True",
+        "test_recorded_eligibility_reads_the_completing_entry_and_nothing_else",
+    ),
+    _derivation_mutant(
+        "DI-02-m2-any-subject",
+        "an M2 chain takes every epoch's entries",
+        "if e.identity.epoch_root == root",
+        "if True",
+        "test_each_subject_position_is_its_own_chain_walked_by_reference",
+    ),
+    _derivation_mutant(
+        "DI-03-m3-any-subject",
+        "an M3 chain takes every envelope's entries",
+        "if e.identity.envelope == envelope",
+        "if True",
+        "test_each_subject_position_is_its_own_chain_walked_by_reference",
+    ),
+    _derivation_mutant(
+        "DI-04-m4-any-subject",
+        "an M4 chain takes every instance's entries",
+        "if e.identity.authorization == authorization",
+        "if True",
+        "test_each_subject_position_is_its_own_chain_walked_by_reference",
+    ),
+    _derivation_mutant(
+        "DI-05-any-adoption",
+        "completion counts another activation's adoption record",
+        "if d.identity.activation == activation.identity",
+        "if True",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-06-any-effect",
+        "an activation's term takes every activation's effects",
+        "if e.identity.parent_activation == activation.identity",
+        "if True",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-07-any-conformance",
+        "an activation's term reads any envelope-conformance determination",
+        "if c.identity.activation == activation.identity",
+        "if True",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-08-out-of-envelope-kept",
+        "an effect outside the envelope enters the prior state",
+        "if judged[e.identity] == {True}",
+        "if True",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-09-any-boundary",
+        "the prior state takes any epoch's entry boundary",
+        "if b.resolved_root == root",
+        "if True",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-10-other-epochs-activations",
+        "activations of another epoch are strata candidates",
+        "if other.resolved_root != root:",
+        "if False:",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-11-not-strictly-before",
+        "every other stratum, later ones included, is a prior term",
+        "if not place < before:",
+        "if not place != before:",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-12-uncompleted-kept",
+        "an unadopted activation's effects enter the prior state",
+        "if not _completed(records, other):",
+        "if False:",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-13-any-closure-activation",
+        "a closure scope takes every closure activation's assessments",
+        "if assessed.closure_activation == closure_activation:",
+        "if True:",
+        "test_closure_scope_is_the_findings_that_closure_activations_assessments_name",
+    ),
+    _derivation_mutant(
+        "DI-14-non-member-established",
+        "an obligation for a non-member is established",
+        "if obligation.member_finding not in frozen.members:",
+        "if False:",
+        "test_an_obligation_not_established_for_a_member_is_not_in_force",
+    ),
+    _derivation_mutant(
+        "DI-15-o6-extinguishes",
+        "any decision carrying an obligation referent (O6 too) extinguishes",
+        "if isinstance(decision.act, ObligationExtinguishingDecision)",
+        'if hasattr(decision.act, "obligation")',
+        "test_an_o6_obligation_change_does_not_extinguish_force",
+    ),
+    _derivation_mutant(
+        "DI-16-any-referent",
+        "a waiver naming another obligation extinguishes this one",
+        "and decision.act.obligation == obligation",
+        "and True",
+        "test_a_waiver_naming_another_obligation_does_not_extinguish_this_one",
+    ),
+    _derivation_mutant(
+        "DI-17-first-entry-read",
+        "the epoch's first entry is read instead of the one reached",
+        "epoch[-1].state in TERMINAL_EPOCH_STATES",
+        "epoch[0].state in TERMINAL_EPOCH_STATES",
+        "test_force_ends_exactly_when_the_epoch_is_terminal",
+    ),
+    _derivation_mutant(
+        "DI-18-any-epochs-set",
+        "the bound takes any epoch's frozen set",
+        "if s.resolved_root == root",
+        "if True",
+        "test_cycle_bound_ranges_over_this_epochs_set_only",
+    ),
+    _derivation_mutant(
+        "DI-19-other-sets-obligations",
+        "another set's obligations are applicable",
+        "if obligation.identity.parent_frozen_set != frozen.identity:",
+        "if False:",
+        "test_cycle_bound_ranges_over_this_epochs_set_only",
+    ),
+    _derivation_mutant(
+        "DI-20-force-ignored",
+        "an extinguished obligation stays applicable",
+        "if isinstance(force, ObligationForce) and force.in_force:",
+        "if isinstance(force, ObligationForce):",
+        "test_a_waived_or_deferred_obligation_leaves_the_applicable_set_and_the_bound",
+    ),
+    _derivation_mutant(
+        "DI-21-any-epochs-closure",
+        "another epoch's closure activation attests",
+        "if a.resolved_root == root",
+        "if True",
+        "test_only_this_epochs_completed_closure_activations_attest",
+    ),
+    _derivation_mutant(
+        "DI-22-any-role-attests",
+        "a non-closure activation named as closure activation attests",
+        "and a.role == Role.BOUNDED_CLOSURE_VERIFIER",
+        "and True",
+        "test_only_this_epochs_completed_closure_activations_attest",
+    ),
+    _derivation_mutant(
+        "DI-23-unadopted-closure-attests",
+        "an unadopted closure activation attests",
+        "and _completed(records, a)",
+        "and True",
+        "test_only_this_epochs_completed_closure_activations_attest",
+    ),
+    _derivation_mutant(
+        "DI-24-any-assessment-attests",
+        "an assessment from any activation attests",
+        "if r.assessment.identity.closure_activation in closers",
+        "if True",
+        "test_only_this_epochs_completed_closure_activations_attest",
+    ),
+    _derivation_mutant(
+        "DI-25-not-closed-attests",
+        "a NOT_CLOSED verdict attests",
+        "and isinstance(r.verdict, ClosedVerdict)",
+        "and True",
+        "test_cycle_bound_is_the_applicable_set_minus_members_attested_closed",
+    ),
+    _derivation_mutant(
+        "DI-26-any-events-halt",
+        "another event's halt occurrence resolves this suspension",
+        "if h.event == event",
+        "if True",
+        "test_a_suspension_with_no_halt_or_only_another_events_resolution_stays_unresolved",
+    ),
+    _derivation_mutant(
+        "DI-27-outstanding-dropped",
+        "an outstanding halt occurrence is read as resolved",
+        "if o not in resolved",
+        "if False",
+        "test_an_unresolved_suspending_event_makes_the_instance_not_live",
+    ),
+    _derivation_mutant(
+        "DI-28-any-instances-disposition",
+        "another instance's establishing record counts",
+        "if r.identity.authorization == authorization",
+        "if True",
+        "test_consumption_and_revocation_each_end_liveness_for_their_instance_only",
+    ),
+    _derivation_mutant(
+        "DI-29-any-resolution-occurrence",
+        "recorded eligibility accepts any RC-14 occurrence",
+        "if r.identity == resolution",
+        "if True",
+        "test_recorded_eligibility_reads_the_completing_entry_and_nothing_else",
+    ),
+    _derivation_mutant(
+        "DI-30-resolved-halt-outstanding",
+        "a resolved halt occurrence is outstanding",
+        "if h.identity not in named",
+        "if True",
+        "test_outstanding_halts_are_those_no_resolution_names_and_coexist",
+    ),
+    _derivation_mutant(
+        "DI-31-any-occurrences-closure",
+        "an occurrence's closure is any occurrence's",
+        "and run.cycle_occurrence.value == occurrence.identity",
+        "and True",
+        "test_the_series_follows_occurrence_references_and_strictly_decreases",
+    ),
+    _derivation_mutant(
+        "DI-32-any-role-closes",
+        "a remediator bound to the occurrence is its closure",
+        "and run.role == Role.BOUNDED_CLOSURE_VERIFIER",
+        "and True",
+        "test_the_series_follows_occurrence_references_and_strictly_decreases",
+    ),
+    _derivation_mutant(
+        "DI-33-unadopted-closes",
+        "an unadopted closure activation closes the occurrence",
+        "and _completed(records, run)",
+        "and True",
+        "test_an_occurrence_without_a_completed_closure_ends_the_series_affirmatively",
+    ),
+    _derivation_mutant(
+        "DI-34-any-epochs-occurrence",
+        "the series takes another epoch's occurrences",
+        "if c.predecessor_entry.epoch_root == root",
+        "if True",
+        "test_the_series_follows_occurrence_references_and_strictly_decreases",
+    ),
+    _derivation_mutant(
+        "DI-35-any-successor",
+        "the series follows any occurrence as successor",
+        "and c.predecessor_closure_activation.value == closer",
+        "and True",
+        "test_the_series_follows_occurrence_references_and_strictly_decreases",
+    ),
+    _derivation_mutant(
+        "DI-36-torn-read-used",
+        "a read whose two passes differ is used as the record set",
+        "if passes[0] != passes[1]:",
+        "if False:",
+        "test_a_read_whose_two_passes_differ_is_unstable_and_never_used",
+    ),
+    _derivation_mutant(
+        "DI-37-undecodable-record-dropped",
+        "a stored record that does not decode is dropped, and its class read as complete",
+        "if isinstance(item, UnreadableRecord):",
+        "if False:",
+        "test_an_undecodable_stored_record_marks_its_class_unreadable",
+    ),
+    _derivation_mutant(
+        "DI-38-unreadable-class-used",
+        "a class with an unreadable record is derived over from its readable remainder",
+        "if kind in records.unreadable:",
+        "if False:",
+        "test_an_unreadable_input_class_makes_the_derivation_indeterminate",
+    ),
+    _derivation_mutant(
+        "DI-39-unstable-class-used",
+        "a class not read as one consistent set is derived over as though empty",
+        "if kind in records.unstable:",
+        "if False:",
+        "test_a_read_whose_two_passes_differ_is_unstable_and_never_used",
+    ),
+    _derivation_mutant(
+        "DI-40-conflicting-judgements-admitted",
+        "disagreeing envelope determinations for one effect are admitted as input",
+        "if any(len(judgements) > 1 for judgements in judged.values()):",
+        "if False:",
+        "test_conflicting_envelope_determinations_for_one_effect_make_dv1_indeterminate",
+    ),
+    _derivation_mutant(
+        "DI-41-another-activation-assessed",
+        "DV-1 is computed for an activation other than the one named",
+        "if a.identity == assessed",
+        "if a.identity != assessed",
+        "test_the_prior_authorized_state_is_computed_for_the_named_activation",
+    ),
+    _derivation_mutant(
+        "DI-42-unrecorded-obligation-established",
+        "a member with no obligation record of its own is read as established",
+        "if o.identity == obligation",
+        "if True",
+        "test_an_obligation_is_established_only_by_its_own_record_and_its_own_set",
+    ),
+    _derivation_mutant(
+        "DI-43-another-set-establishes",
+        "an obligation naming no recorded set is established by another set",
+        "if s.identity == obligation.parent_frozen_set",
+        "if True",
+        "test_an_obligation_is_established_only_by_its_own_record_and_its_own_set",
+    ),
+    _derivation_mutant(
+        "DI-44-resolved-suspension-kept",
+        "a suspension whose event is resolved still ends liveness",
+        "and _still_suspending(",
+        "and (lambda *_: True)(",
+        "test_a_resolution_naming_the_suspending_events_halt_restores_liveness",
+    ),
+    _derivation_mutant(
+        "DI-45-open-entry-read-as-completing",
+        "the opening A1 entry is read as the completing entry",
+        "if entry.edge in COMPLETING_EDGES",
+        "if True",
+        "test_recorded_eligibility_reads_the_completing_entry_and_nothing_else",
+    ),
+    _derivation_mutant(
+        "DI-46-attested-member-kept",
+        "an obligation whose member is attested closed stays in the bound",
+        "if o.member_finding not in attested",
+        "if True",
+        "test_cycle_bound_is_the_applicable_set_minus_members_attested_closed",
+    ),
+    _derivation_mutant(
+        "DI-47-another-envelope-keyed",
+        "an activation's stratum is read from another recorded envelope, the first read",
+        "envelopes.get(activation.envelope)",
+        "envelopes.get(next(iter(envelopes)))",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-48-another-stratum-keyed",
+        "an activation's stratum is read at another M2 entry of its epoch, the first",
+        "strata[envelope.predecessor_entry]",
+        "strata[next(iter(strata))]",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+    _derivation_mutant(
+        "DI-49-another-effects-judgement-keyed",
+        "an effect is judged by another effect's envelope judgement, the first recorded",
+        "judged[e.identity]",
+        "judged[effects[0].identity]",
+        "test_the_prior_authorized_state_is_the_boundary_plus_earlier_completed_effects",
+    ),
+)
+"""`GP-AUTO-ST-04`'s mutants: one per input-selection guard line in `derivations.py`, each
+feeding the derivation a plausible wrong input — another subject's, another epoch's, a
+later stratum's, an unadopted activation's, a non-naming or non-extinguishing decision's,
+an undecodable or torn read, a disagreeing determination. Every killer is a `test_ga21`
+case whose record set contains that wrong input."""
+
+ST04_UNMUTATED_PREDICATES: Final[dict[tuple[str, str], str]] = {
+    # Input selections with no plausible-value mutant: every wrong selection fails closed.
+    ("_of", "type(record) is kind"): (
+        "class selection: a record of another class lacks the fields read next, so a wrong"
+        " class crashes; the record classes have no subclasses, so isinstance is equivalent"
+    ),
+    ("_walk", "isinstance(entry.predecessor, KnownAbsent)"): (
+        "first-entry selection: any other choice fails the one-first and reachability checks"
+        " (BROKEN_CHAIN)"
+    ),
+    ("_completed", "entry.edge == M3Edge.C4"): (
+        "C4 selection: any other choice disagrees with the adoption record or is counted"
+        " twice (INCONSISTENT_RECORDS)"
+    ),
+    ("_completed", "isinstance(d.determination, AdoptionDetermination)"): (
+        "adoption selection: admitting other RC-39 classes counts a completed activation's"
+        " records twice, and an unadopted one's without C4 (INCONSISTENT_RECORDS)"
+    ),
+    ("_authorized_effects", "isinstance(c.determination, EnvelopeConformanceDetermination)"): (
+        "envelope-class selection: other RC-39 classes carry no per-effect judgement, so"
+        " admitting them crashes"
+    ),
+    ("derive_liveness", "isinstance(d, ConsumedDisposition)"): (
+        "variant selection: the establishing field read next exists on this variant only"
+    ),
+    ("derive_liveness", "isinstance(d, RevokedDisposition)"): (
+        "variant selection: the establishing field read next exists on this variant only"
+    ),
+    ("derive_liveness", "isinstance(d, SuspendedDisposition)"): (
+        "variant selection: the establishing field read next exists on this variant only"
+    ),
+    ("_closing_activation", "isinstance(run.cycle_occurrence, Present)"): (
+        "presence test: an absent occurrence has no value to read, so admitting it crashes"
+    ),
+    ("derive_closure_scope_series", "isinstance(c.predecessor_closure_activation, KnownAbsent)"): (
+        "first-occurrence selection: any other choice leaves an occurrence unreachable"
+        " (BROKEN_CHAIN) or is not unique (INCONSISTENT_RECORDS)"
+    ),
+    ("derive_closure_scope_series", "isinstance(c.predecessor_closure_activation, Present)"): (
+        "presence test: an absent predecessor has no value to read, so admitting it crashes"
+    ),
+    ("derive_closure_scope_series", "isinstance(s.closure, ClosureScope)"): (
+        "step selection: a step with no completed closure has no members, so admitting it crashes"
+    ),
+    # Not input selections: each raises indeterminacy, or returns a fixed affirmative-absence
+    # value, on a cardinality or consistency condition over inputs already selected.
+    ("_one", "not found"): "cardinality: MISSING_RECORD",
+    ("_one", "len(found) > 1"): "cardinality: INCONSISTENT_RECORDS",
+    ("_walk", "not subject_entries"): "empty chain: Unoccupied",
+    ("_walk", "len(firsts) != 1"): "chain structure: BROKEN_CHAIN",
+    ("_walk", "isinstance(entry.predecessor, Present)"): "chain structure: successor map",
+    ("_walk", "entry.predecessor.value in successor"): "chain structure: BROKEN_CHAIN",
+    ("_walk", "len(walked) != len(subject_entries)"): "chain structure: BROKEN_CHAIN",
+    ("_completed", "len(c4_entries) > 1 or len(adoptions) > 1"): "consistency",
+    ("_completed", "c4_entries and chain[-1] is not c4_entries[0]"): "consistency",
+    ("_completed", "bool(c4_entries) != bool(adoptions)"): "consistency",
+    ("_stratum", "envelope is None"): "cardinality: MISSING_RECORD",
+    ("_stratum", "envelope.predecessor_entry not in strata"): "consistency",
+    ("_authorized_effects", "not determinations"): "cardinality: MISSING_RECORD",
+    ("_authorized_effects", "set(judged) != {effect.identity for effect in effects}"): (
+        "consistency: every recorded effect judged, and only those"
+    ),
+    ("derive_prior_authorized_state", "place in terms"): "consistency",
+    ("_obligation_force", "not recorded or not sets"): "affirmative absence: NotEstablished",
+    ("_obligation_force", "not epoch"): "cardinality: MISSING_RECORD",
+    ("_cycle_bound", "not sets"): "affirmative absence: NoFrozenSet",
+    ("derive_recorded_eligibility", "not chain"): "cardinality: MISSING_RECORD",
+    ("derive_recorded_eligibility", "not completing"): "affirmative absence: OpenResolution",
+    (
+        "derive_recorded_eligibility",
+        "len(completing) > 1 or chain[-1] is not completing[0]",
+    ): "consistency",
+    ("_closing_activation", "len(bound) > 1"): "consistency",
+    ("derive_closure_scope_series", "not occurrences"): "affirmative absence: empty series",
+    ("derive_closure_scope_series", "closer is None"): "affirmative absence: NoCompletedClosure",
+    ("derive_closure_scope_series", "not following"): "end of the walk",
+    ("derive_closure_scope_series", "len(steps) != len(occurrences)"): "chain: BROKEN_CHAIN",
+}
+"""ST-04's input-selection inventory, completed (`ST04-IMPL-R02`): every predicate in
+`derivations.py` that is **not** a `ga_derivation_input` line, with the reason it carries
+no mutant. `test_ga23` enumerates every comprehension filter and `if` test in the module
+and requires each to be either on a tagged line or here, so a new selection cannot be
+added untagged and unlisted. The Mutation cell's criterion decides membership: a guard is
+mutated where a wrong input would still produce a plausible value."""
+
+ST04_KEYED_SELECTIONS: Final[dict[tuple[str, str], tuple[str, ...]]] = {
+    ("_stratum", "envelopes.get(activation.envelope)"): ("DI-47-another-envelope-keyed",),
+    ("_stratum", "strata[envelope.predecessor_entry]"): ("DI-48-another-stratum-keyed",),
+    ("_authorized_effects", "judged[e.identity]"): ("DI-49-another-effects-judgement-keyed",),
+    ("_obligation_force", "epoch[-1]"): ("DI-17-first-entry-read",),
+}
+"""ST-04's keyed input selections (`ST04-IMPL-R02`): each keyed access in `derivations.py`
+by which a derivation takes one authoritative record — or one record's judgement or place
+— out of several valid ones, where another key selects another valid record and the
+derivation still returns a determinate, plausible value. Each is on a `ga_derivation_input`
+line and carries a mutant that changes the **key** and nothing else: its activation's own
+envelope, that envelope's own `MC-15` predecessor entry, the effect's own judgement, the
+epoch's reached M2 entry."""
+
+NON_SELECTION = "non-selection"
+SINGLE_LAWFUL_VALUE = "single-lawful-value"
+FAIL_CLOSED = "fail-closed"
+
+ST04_UNQUALIFIED_KEYED_ACCESSES: Final[dict[tuple[str, str], tuple[int, str, str]]] = {
+    ("read_authoritative_records", "passes[0]"): (
+        2,
+        SINGLE_LAWFUL_VALUE,
+        "the two passes are compared, and the one returned is returned only when both are"
+        " equal: either index is the same value",
+    ),
+    ("read_authoritative_records", "passes[1]"): (
+        1,
+        NON_SELECTION,
+        "an operand of the two-pass agreement test, itself the tagged DI-36 guard",
+    ),
+    ("_one", "found[0]"): (1, SINGLE_LAWFUL_VALUE, "read only once `found` has exactly one"),
+    ("_walk", "firsts[0]"): (1, SINGLE_LAWFUL_VALUE, "read only once `firsts` has exactly one"),
+    ("_walk", "successor[entry.predecessor.value]"): (
+        1,
+        NON_SELECTION,
+        "a write: the successor map is keyed by each entry's own recorded predecessor",
+    ),
+    ("_walk", "walked[-1]"): (
+        2,
+        FAIL_CLOSED,
+        "the walk's cursor: any other walked entry revisits one, so the walk overruns the"
+        " subject's entries and the reachability check fails (BROKEN_CHAIN)",
+    ),
+    ("_walk", "successor[walked[-1].identity]"): (
+        1,
+        FAIL_CLOSED,
+        "follows the cursor's own identity: another walked entry's key repeats an entry"
+        " (BROKEN_CHAIN), and an unwalked key is absent from the map",
+    ),
+    ("derive_m1_position", "chain[-1]"): (
+        1,
+        NON_SELECTION,
+        "projects DV-6's own result — the walked chain's end — and selects no input; its"
+        " value is pinned by test_ga21's position cases",
+    ),
+    ("derive_m2_position", "chain[-1]"): (1, NON_SELECTION, "as derive_m1_position"),
+    ("derive_m3_position", "chain[-1]"): (1, NON_SELECTION, "as derive_m1_position"),
+    ("derive_m4_position", "chain[-1]"): (1, NON_SELECTION, "as derive_m1_position"),
+    ("_completed", "chain[-1]"): (
+        1,
+        FAIL_CLOSED,
+        "an operand of the C4-is-final consistency test: any other entry of a chain holding"
+        " C4 raises INCONSISTENT_RECORDS",
+    ),
+    ("_completed", "c4_entries[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `c4_entries` has at most one",
+    ),
+    ("_authorized_effects", "judged.setdefault(item.effect, set())"): (
+        1,
+        NON_SELECTION,
+        "a write: judgements are collected under each one's own recorded effect; any other"
+        " key breaks the judged-equals-recorded check (INCONSISTENT_RECORDS)",
+    ),
+    ("derive_prior_authorized_state", "terms[place]"): (
+        2,
+        SINGLE_LAWFUL_VALUE,
+        "written once per stratum and read back over its own keys, each exactly once",
+    ),
+    ("derive_recorded_eligibility", "chain[-1]"): (
+        1,
+        FAIL_CLOSED,
+        "an operand of the completing-entry-is-final consistency test (INCONSISTENT_RECORDS)",
+    ),
+    ("derive_recorded_eligibility", "completing[0]"): (
+        2,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `completing` has exactly one",
+    ),
+    ("_closing_activation", "bound[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `bound` has exactly one",
+    ),
+    ("derive_closure_scope_series", "scopes[1:]"): (
+        1,
+        NON_SELECTION,
+        "a slice pairing every scope with its successor for the CO-18 test over all of"
+        " them; it selects no record",
+    ),
+}
+"""Every other keyed access in `derivations.py` — subscript, `.get`, `.setdefault` — with
+the number of times its text occurs in its function, its class and its reason. The classes
+are the Mutation cell's exclusions: **non-selection** (a write, an operand of a
+consistency test already inventoried, or a projection of the derivation's own result);
+**single-lawful-value** (only one key or value can exist where it is read); **fail-closed**
+(every other key raises indeterminacy or cannot occur). `test_ga23` enumerates every keyed
+access outside an annotation and requires each to be here or in `ST04_KEYED_SELECTIONS`,
+by text and by count. Membership tests (`in`, `not in`) are predicates, and are
+inventoried with them in `ST04_UNMUTATED_PREDICATES` or tagged."""
+
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -565,6 +1154,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
         killer=f"{CODEC_TESTS}::test_an_artifact_preimage_under_another_content_encoding_is_refused",
     ),
     *ST03_MUTANTS,
+    *ST04_MUTANTS,
 )
 
 
