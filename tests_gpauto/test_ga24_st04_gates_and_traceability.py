@@ -225,14 +225,24 @@ def test_every_st04_row_is_discharged_by_st04_evidence() -> None:
 
 @pytest.mark.traces("ST04-A1")
 def test_no_later_stage_obligation_is_discharged_or_reassigned_here() -> None:
-    """`EV11-6`, `SG11-9`: the nineteen rows owed to later stages are still undischarged,
-    each still owed by the stage recorded for it; none is owed by ST-04; and nothing
-    beyond them is undischarged."""
+    """`EV11-6`, `SG11-9`: the nineteen rows owed to later stages at ST-04's acceptance
+    (recorded in `OWED_AT_ST04_ACCEPTANCE`) are each still undischarged and owed by the
+    stage recorded for it — or, once that stage has run, discharged by exactly it; none
+    is owed by or discharged by ST-04; and every undischarged row is owed somewhere."""
     rows = _rows()
+    owed_then = traceability.OWED_AT_ST04_ACCEPTANCE
+    assert len(owed_then) == LATER_STAGE_OBLIGATIONS
+    for element, stage in owed_then.items():
+        assert stage != GPAUTO_STAGE, element
+        if stage in traceability.STAGES_RUN:
+            assert rows[element].disposition == DISCHARGED, element
+            assert rows[element].implementing == stage, element
+        else:
+            assert rows[element].disposition == UNDISCHARGED, element
+            assert OWED_BY[element][0] == stage, element
     undischarged = {e for e, row in rows.items() if row.disposition == UNDISCHARGED}
     assert undischarged == set(OWED_BY)
-    assert len(undischarged) == LATER_STAGE_OBLIGATIONS
     for element, (stage, _) in OWED_BY.items():
         assert rows[element].implementing == stage, element
         assert stage != GPAUTO_STAGE and stage not in traceability.STAGES_RUN, element
-    assert traceability.STAGES_RUN[-1] == GPAUTO_STAGE
+    assert GPAUTO_STAGE in traceability.STAGES_RUN

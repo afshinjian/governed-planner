@@ -63,6 +63,12 @@ ST04_OPERATION_MODULES = frozenset({"derivations.py"})
 (AP-11 §16 ST-04, *Authorized scope*) — and no other. Its functions are pinned in
 `test_ga24`."""
 
+ST05_OPERATION_MODULES = frozenset({"state_machine.py"})
+"""The module `GP-AUTO-ST-05` was authorized to add operations in — its evaluator, coupling
+checks and matrix generator (AP-11 §16 ST-05, *Authorized scope*). Its model data,
+`state_machine_model.py`, declares no function, and this test keeps asserting that. Its
+functions are pinned in `test_ga28`."""
+
 NEVER_AN_ENTITY = {
     "AuthorityCeiling": "merged into the AuthorityBounds value carried by RA-07 (AP-03 §2.2)",
     "DecisionPackage": "demoted to a derivation with no identity (AP-03 §2.5, AP03-I31)",
@@ -187,7 +193,12 @@ def test_the_package_declares_no_function_at_all() -> None:
     """
     offenders: list[str] = []
     for path in source_files():
-        if path.name in ST02_OPERATION_MODULES | ST03_OPERATION_MODULES | ST04_OPERATION_MODULES:
+        if path.name in (
+            ST02_OPERATION_MODULES
+            | ST03_OPERATION_MODULES
+            | ST04_OPERATION_MODULES
+            | ST05_OPERATION_MODULES
+        ):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):

@@ -46,6 +46,23 @@ and nothing for `DV-9`, `DV-10`, `RA-00`…`RA-09` or a `DV-11` comparator (`DO1
   it carries no mutant, in `ST04_UNMUTATED_PREDICATES`; every keyed access, in
   `ST04_KEYED_SELECTIONS` or `ST04_UNQUALIFIED_KEYED_ACCESSES`.
 
+**From `GP-AUTO-ST-05`, two more guards**, exactly the frozen Mutation cell's scope —
+*"every transition guard; each `RP-*` and `CE-*` condition individually"* (`SV11-3`) — and
+nothing else:
+
+* `ga_transition_guard` — `src/gpauto/state_machine_model.py`: every condition of every
+  edge's guard, `RP-1`…`RP-7`, `CE-0a`…`CE-6` and `CP-1`…`CP-5` among them; a **model**
+  guard, since a guard is data. One mutant per (edge, alternative or tier, condition),
+  generated from the model and removing that one condition from that one edge; its
+  killer enumerates the conditions from a snapshot taken before any mutation, so a
+  removed condition cannot hide from its own test. The three conditions the
+  `ST05-IMPL-R01`…`R03` remediation added — `C1-6` (`V-06`), `C2-8` (`OP-8`) and `B13-4`
+  (`HB-1` as restated) — are each killed by their own dedicated test, and each also
+  carries one **inversion** mutant admitting exactly the values it refuses.
+* `ga_transition_evaluator` — `src/gpauto/state_machine.py`: the lines that read a guard —
+  domain closure, condition satisfaction, the pair's expressibility, alternatives, the
+  stratified order `CE-T1`…`CE-T3` and the joint coupled act (`K-9`); a **line** guard.
+
 **No harness is installed** (`PG11-2` is undischarged, and a tool install would be a
 halt). This module is test code that performs exactly the two kinds of mutation the
 obligation needs, and nothing more:
@@ -89,7 +106,7 @@ import sys
 import types
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Final
 
@@ -99,7 +116,15 @@ if __package__ in (None, ""):  # pragma: no cover - only when run as a script
 import pytest
 from pydantic import BaseModel, ConfigDict, create_model
 
-from gpauto import codec, derivations, equivalence, store, store_schema
+from gpauto import (
+    codec,
+    derivations,
+    equivalence,
+    state_machine,
+    state_machine_model,
+    store,
+    store_schema,
+)
 from gpauto.authorization import AuthorizationRecord
 from gpauto.preimage import ArtifactContentPreimage, StageContractContent, StageContractPreimage
 
@@ -175,6 +200,25 @@ GUARDS: Final[dict[str, Guard]] = {
         kind="line",
         guarantees=("DV-1", "DV-2", "DV-3", "DV-5", "DV-6", "DV-7", "DV-8", "DO11-1", "DO11-2"),
     ),
+    "ga_transition_guard": Guard(
+        identifier="ga_transition_guard",
+        module=state_machine_model,
+        kind="model",
+        guarantees=(
+            "A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4", "B5", "B6a", "B6b", "B7", "B8",
+            "B9", "B10", "B11", "B12", "B13", "B15", "C1", "C2", "C3", "C4", "C5", "C6",
+            "G1", "G2", "G3", "G4", "G5", "G6",
+            "RP-1", "RP-2", "RP-3", "RP-4", "RP-5", "RP-6", "RP-7",
+            "CE-0a", "CE-0b", "CE-0c", "CE-0d", "CE-1", "CE-2", "CE-3", "CE-4", "CE-5", "CE-6",
+            "CP-1", "CP-2", "CP-3", "CP-4", "CP-5",
+        ),  # fmt: skip
+    ),
+    "ga_transition_evaluator": Guard(
+        identifier="ga_transition_evaluator",
+        module=state_machine,
+        kind="line",
+        guarantees=("CE-T1", "CE-T2", "CE-T3", "AP04-I21", "AP04-I44", "K-9", "AP04-I39"),
+    ),
 }
 
 
@@ -202,7 +246,25 @@ class SchemaMutant:
     killer: str
 
 
-type Mutant = LineMutant | SchemaMutant
+@dataclass(frozen=True)
+class ModelMutant:
+    """Remove one condition from one part of one edge's guard in the model data — or, where
+    `admitted` is given, keep it and have it admit those values instead (an inversion).
+
+    `part` is the alternative's index for a conjunctive guard, or `own`, `tier0` or
+    `tier1` for a stratified one."""
+
+    guard: str
+    identifier: str
+    description: str
+    edge: str
+    part: str
+    condition: str
+    killer: str
+    admitted: tuple[str, ...] | None = None
+
+
+type Mutant = LineMutant | SchemaMutant | ModelMutant
 
 EQUIVALENCE_TESTS = "tests_gpauto/test_ga12_equivalence.py"
 CODEC_TESTS = "tests_gpauto/test_ga11_codec.py"
@@ -1040,6 +1102,168 @@ by text and by count. Membership tests (`in`, `not in`) are predicates, and are
 inventoried with them in `ST04_UNMUTATED_PREDICATES` or tagged."""
 
 
+ST05_MODEL_TESTS = "tests_gpauto/test_ga25_st05_model.py"
+ST05_RECORDS_TESTS = "tests_gpauto/test_ga27_st05_restart_and_mutation.py"
+ST05_KILLER = f"{ST05_MODEL_TESTS}::test_every_condition_is_individually_falsifiable"
+ST05_DEDICATED_KILLERS: Final[dict[str, str]] = {
+    "C1-6": f"{ST05_MODEL_TESTS}::test_c1_derives_no_envelope_over_an_unaccounted_mutation",
+    "C2-8": f"{ST05_RECORDS_TESTS}::"
+    "test_c2_admits_a_dispatch_only_against_the_committed_cycle_bound",
+    "B13-4": f"{ST05_RECORDS_TESTS}::"
+    "test_b13_refuses_a_cycle_occurrence_binding_that_is_missing_or_inconsistent",
+}
+"""`ST05-IMPL-R01`…`R03`: the remediated conditions, each killed by its own test."""
+
+
+def _model_parts(
+    rule: state_machine_model.EdgeRule,
+) -> tuple[tuple[str, tuple[state_machine_model.Condition, ...]], ...]:
+    guard = rule.guard
+    if isinstance(guard, state_machine_model.Stratified):
+        return (("own", guard.own), ("tier0", guard.tier0), ("tier1", guard.tier1))
+    return tuple((str(index), part) for index, part in enumerate(guard.alternatives))
+
+
+ST05_MODEL_MUTANTS: Final[tuple[ModelMutant, ...]] = tuple(
+    ModelMutant(
+        guard="ga_transition_guard",
+        identifier=f"TG-{rule.edge}-{part}-{condition.identifier}",
+        description=f"{rule.edge}'s guard ({part}) without condition {condition.identifier}",
+        edge=str(rule.edge),
+        part=part,
+        condition=condition.identifier,
+        killer=ST05_DEDICATED_KILLERS.get(condition.identifier, ST05_KILLER),
+    )
+    for rule in state_machine_model.EDGES
+    for part, conditions in _model_parts(rule)
+    for condition in conditions
+)
+"""One mutant per (edge, part, condition) of the unmutated model — generated, so a
+condition added to the model gets its mutant, and `test_ga27` checks none is missing."""
+
+ST05_INVERSION_MUTANTS: Final[tuple[ModelMutant, ...]] = tuple(
+    ModelMutant(
+        guard="ga_transition_guard",
+        identifier=f"TG-{edge}-0-{condition}-inverted",
+        description=f"{edge}'s condition {condition} admits {' / '.join(admitted)} instead",
+        edge=edge,
+        part="0",
+        condition=condition,
+        killer=ST05_DEDICATED_KILLERS[condition],
+        admitted=admitted,
+    )
+    for edge, condition, admitted in (
+        ("C1", "C1-6", state_machine_model.T),
+        ("C2", "C2-8", (state_machine_model.UNEQUAL, state_machine_model.NOT_APPLICABLE)),
+        ("B13", "B13-4", state_machine_model.F),
+    )
+)
+"""`ST05-IMPL-R01`…`R03`: each remediated condition inverted — `V-06` admitting an
+unaccounted mutation, `OP-8` admitting an unequal set, `HB-1` admitting an unbound
+occurrence — so omission and inversion are both shown detected."""
+
+
+def _evaluator_mutant(
+    identifier: str, description: str, original: str, replacement: str, killer: str
+) -> LineMutant:
+    guard = "ga_transition_evaluator"
+    return LineMutant(guard, identifier, description, original, replacement, killer)
+
+
+ST05_EVALUATOR_MUTANTS: Final[tuple[LineMutant, ...]] = (
+    _evaluator_mutant(
+        "EV-01-domain-open",
+        "a value outside its fact's domain is used as it is, not read as INDETERMINATE",
+        "return value if value in fact.values else model.INDETERMINATE",
+        "return value",
+        f"{ST05_MODEL_TESTS}::test_a_value_outside_its_domain_is_indeterminate",
+    ),
+    _evaluator_mutant(
+        "EV-02-unmet-inverted",
+        "a condition is reported unmet when its value is admitted",
+        "if fact_value(facts, c.fact) not in c.admitted",
+        "if fact_value(facts, c.fact) in c.admitted",
+        ST05_KILLER,
+    ),
+    _evaluator_mutant(
+        "EV-03-pair-always-expressible",
+        "the position is not checked against the edge's sources",
+        "if source not in rule.sources:",
+        "if source not in rule.sources and False:",
+        f"{ST05_MODEL_TESTS}::test_every_illegal_pair_is_refused_under_any_facts",
+    ),
+    _evaluator_mutant(
+        "EV-04-all-alternatives",
+        "every alternative must hold, not one",
+        "if any(not failed for failed in failures):",
+        "if all(not failed for failed in failures):",
+        ST05_KILLER,
+    ),
+    _evaluator_mutant(
+        "EV-05-tier0-falls-through",
+        "CE-T1/CE-T2: a Tier-0 failure goes on to Tier 1",
+        "if tier0:",
+        "if tier0 and False:",
+        f"{ST05_MODEL_TESTS}::test_the_stratified_cycle_predicate_in_all_four_cases",
+    ),
+    _evaluator_mutant(
+        "EV-06-tier1-indeterminacy-ignored",
+        "CE-T3: an indeterminate Tier 1 is read as false",
+        "if unknown:",
+        "if unknown and False:",
+        f"{ST05_MODEL_TESTS}::test_the_stratified_cycle_predicate_in_all_four_cases",
+    ),
+    _evaluator_mutant(
+        "EV-07-tier1-any",
+        "Tier 1 holds when any condition holds",
+        "holds = all(value in c.admitted for c, value in tier1)",
+        "holds = any(value in c.admitted for c, value in tier1)",
+        f"{ST05_MODEL_TESTS}::test_the_stratified_cycle_predicate_in_all_four_cases",
+    ),
+    _evaluator_mutant(
+        "EV-08-tier1-polarity-inverted",
+        "B8 takes Tier 1 true and B15 takes it false",
+        "if holds != guard.tier1_holds:",
+        "if holds == guard.tier1_holds:",
+        f"{ST05_MODEL_TESTS}::test_the_stratified_cycle_predicate_in_all_four_cases",
+    ),
+    _evaluator_mutant(
+        "EV-09-indeterminate-filter-inverted",
+        "the determinate Tier-1 values are the ones reported unknown",
+        "if value == model.INDETERMINATE",
+        "if value != model.INDETERMINATE",
+        f"{ST05_MODEL_TESTS}::test_the_stratified_cycle_predicate_in_all_four_cases",
+    ),
+    _evaluator_mutant(
+        "EV-10-joint-pair-split",
+        "K-9: a joint M2 edge is admitted without its M4 edge",
+        "if coupling.joint and not moved:",
+        "if coupling.joint and not moved and False:",
+        f"{ST05_MODEL_TESTS}::test_b13_and_g6_fire_together_or_not_at_all",
+    ),
+    _evaluator_mutant(
+        "EV-11-restoration-unbound",
+        "HB-1: B13 takes any given restoration, whatever position the guard read",
+        "if restoration is None or restoration.position != restored:",
+        "if restoration is None:",
+        f"{ST05_MODEL_TESTS}::test_b13_is_bound_to_the_named_halts_cycle_occurrence",
+    ),
+    _evaluator_mutant(
+        "EV-12-halt-context-unbound",
+        "SV11-6: B13 takes a restoration of another halt than the one its facts were read for",
+        "if facts.get(NAMED_HALT) != restoration.halt.value:",
+        "if facts.get(NAMED_HALT) != restoration.halt.value and False:",
+        f"{ST05_RECORDS_TESTS}::"
+        "test_b13_admits_only_the_restoration_of_the_halt_its_facts_were_read_for",
+    ),
+)
+
+ST05_MUTANTS: Final[tuple[Mutant, ...]] = (
+    *ST05_MODEL_MUTANTS,
+    *ST05_INVERSION_MUTANTS,
+    *ST05_EVALUATOR_MUTANTS,
+)
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -1155,6 +1379,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
     ),
     *ST03_MUTANTS,
     *ST04_MUTANTS,
+    *ST05_MUTANTS,
 )
 
 
@@ -1247,6 +1472,60 @@ def _schema_substituted(
     yield
 
 
+@contextmanager
+def _model_substituted(
+    mutant: ModelMutant, monkeypatch: pytest.MonkeyPatch, *, control: bool
+) -> Iterator[None]:
+    """The model's edge table rebuilt with the one condition removed — or, as a control,
+    rebuilt unchanged — and substituted for the table the evaluator reads."""
+    m = state_machine_model
+    rebuilt: list[state_machine_model.EdgeRule] = []
+    removed = 0
+    for rule in m.EDGES:
+        guard = rule.guard
+        if str(rule.edge) == mutant.edge and not control:
+            before = sum(len(part) for _, part in _model_parts(rule))
+
+            def drop(part: tuple[m.Condition, ...]) -> tuple[m.Condition, ...]:
+                if mutant.admitted is None:
+                    return tuple(c for c in part if c.identifier != mutant.condition)
+                return tuple(
+                    replace(c, admitted=mutant.admitted) if c.identifier == mutant.condition else c
+                    for c in part
+                )
+
+            if isinstance(guard, m.Stratified):
+                guard = m.Stratified(
+                    own=drop(guard.own) if mutant.part == "own" else guard.own,
+                    tier0=drop(guard.tier0) if mutant.part == "tier0" else guard.tier0,
+                    tier1=drop(guard.tier1) if mutant.part == "tier1" else guard.tier1,
+                    tier1_holds=guard.tier1_holds,
+                )
+            else:
+                guard = m.Conjunctive(
+                    tuple(
+                        drop(part) if str(index) == mutant.part else part
+                        for index, part in enumerate(guard.alternatives)
+                    )
+                )
+            rule = m.EdgeRule(rule.edge, rule.machine, rule.sources, rule.target, guard, rule.row)
+            removed += before - sum(len(part) for _, part in _model_parts(rule))
+            removed += sum(
+                1
+                for _, part in _model_parts(rule)
+                for c in part
+                if mutant.admitted is not None
+                and c.identifier == mutant.condition
+                and c.admitted == mutant.admitted
+            )
+        else:
+            rule = m.EdgeRule(rule.edge, rule.machine, rule.sources, rule.target, guard, rule.row)
+        rebuilt.append(rule)
+    assert control or removed == 1, mutant.identifier
+    monkeypatch.setattr(m, "EDGES", tuple(rebuilt))
+    yield
+
+
 def _schema(model: type[BaseModel]) -> tuple[object, ...]:
     """What a schema mutation must change: configuration, or a field's annotation."""
     nested = model.model_fields.get("content")
@@ -1270,6 +1549,8 @@ def run(mutant: Mutant, *, control: bool = False) -> str:
         substitute = (
             _line_substituted(mutant, monkeypatch, control=control)
             if isinstance(mutant, LineMutant)
+            else _model_substituted(mutant, monkeypatch, control=control)
+            if isinstance(mutant, ModelMutant)
             else _schema_substituted(mutant, monkeypatch, control=control)
         )
         with substitute:

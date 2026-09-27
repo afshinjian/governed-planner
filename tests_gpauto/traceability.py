@@ -89,7 +89,13 @@ IMPLEMENTING_STAGE = "GP-AUTO-ST-01"
 """The stage of every test module that declares no `GPAUTO_STAGE` — ST-01's, which
 predate the declaration. Later stages' modules always declare theirs."""
 
-STAGES_RUN = ("GP-AUTO-ST-01", "GP-AUTO-ST-02", "GP-AUTO-ST-03", "GP-AUTO-ST-04")
+STAGES_RUN = (
+    "GP-AUTO-ST-01",
+    "GP-AUTO-ST-02",
+    "GP-AUTO-ST-03",
+    "GP-AUTO-ST-04",
+    "GP-AUTO-ST-05",
+)
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
 
@@ -121,6 +127,39 @@ AP11_ST04_PATH = Path("/root/.claude/plans/AP-11-AMENDMENT-ST04-derivation-owner
 AP11_ST04_SHA256 = "b23edb0935e5379fc22fa9b14ed19b5750d39b85252558799115fd8ab264c512"
 """The accepted AP-11 ST-04 derivation-ownership amendment, 74 lines / 17480 bytes. Held in
 the test tree like the others: `GP-AUTO-ST-04`'s scope is its derivations module and tests."""
+
+AP04_PATH = Path("/root/.claude/plans/you-are-now-authorized-gentle-quiche.md")
+AP04_SHA256 = "c6b404191db31a22050d94df117e7c6238a0a50e2f97d1982b34b040dc3ba9ad"
+"""Frozen AP-04 (Coordination State Machine), 1110 lines / 189358 bytes."""
+
+AP04_CYCLE_PATH = Path("/root/.claude/plans/AP-04-AMENDMENT-bounded-remediation-closure-cycle.md")
+AP04_CYCLE_SHA256 = "74273a4adb68479e9c465594e12841f7d3942590e01934b67aaa8c019a2ecd18"
+"""The accepted AP-04 bounded remediation/closure-cycle amendment, 664 lines / 142207 bytes.
+Held in the test tree like the others: `GP-AUTO-ST-05`'s scope is its state-machine
+modules and tests, with no tool-configuration clause."""
+
+ST05_AP04_ELEMENTS = (
+    "A1", "A2", "A3", "A4",
+    "B1", "B2", "B3", "B4", "B5", "B6a", "B6b", "B7", "B9", "B10", "B11", "B12", "B13",
+    "C1", "C2", "C3", "C4", "C5", "C6",
+    "G1", "G2", "G3", "G4", "G5", "G6",
+    "K-1", "K-2", "K-2a", "K-3", "K-4", "K-5", "K-6", "K-7", "K-8", "K-9", "K-10",
+    "RP-1", "RP-2", "RP-3", "RP-4", "RP-5", "RP-6", "RP-7",
+    "CP-1", "CP-2", "CP-3", "CP-4", "CP-5",
+    *(f"AP04-I{number:02d}" for number in range(1, 42)),
+)  # fmt: skip
+"""The frozen AP-04 rows `GP-AUTO-ST-05` implements (AP-11 §16: AP-04 §3–§12, §17): every
+edge but the amended `B8`, the coupling invariants, the resumption predicate, the
+completion conditions, and `AP04-I01`…`AP04-I41`."""
+
+ST05_CYCLE_ELEMENTS = (
+    "B8", "B15",
+    "CE-0a", "CE-0b", "CE-0c", "CE-0d", "CE-1", "CE-2", "CE-3", "CE-4", "CE-5", "CE-6",
+    "CE-T1", "CE-T2", "CE-T3",
+    *(f"AP04-I{number}" for number in range(42, 51)),
+)  # fmt: skip
+"""From the accepted amendment: `B15`, `B8` as replaced (§3.5.6), `CE-0a`…`CE-6`,
+`CE-T1`…`CE-T3` and `AP04-I42`…`AP04-I50`."""
 
 AP07_ROW = re.compile(r"^\|\s*((?:ID|EQ|DC)-\d+|VM-11)\s*\|\s*(.+?)\s*\|\s*$")
 AP07_RECORD_ROW = re.compile(r"^\|\s*(RC-\d+)\s*\|(.+)\|\s*$")
@@ -340,6 +379,34 @@ def st04_amendment_elements() -> dict[str, str]:
     return {element: found[element] for element in ST04_AMENDMENT_ELEMENTS}
 
 
+def _normalized(line: str) -> str:
+    return re.sub(r"\s+", " ", line.replace("`", "").replace("*", "")).strip()
+
+
+def _state_machine_rows(path: Path, digest: str, wanted: tuple[str, ...]) -> dict[str, str]:
+    """Rows whose first cell is exactly one of `wanted`, once `*` and backticks are removed."""
+    found: dict[str, str] = {}
+    for line in verified_text(path, digest).splitlines():
+        matched = re.match(r"^\| (\S+) \|(.+)\|$", _normalized(line))
+        if matched is not None and matched.group(1) in wanted:
+            if matched.group(1) in found:
+                raise FrozenSourceError(f"duplicate row in {path.name}: {matched.group(1)}")
+            columns = [column.strip() for column in matched.group(2).split("|")]
+            found[matched.group(1)] = " / ".join(column for column in columns if column)
+    missing = set(wanted) - set(found)
+    if missing:
+        raise FrozenSourceError(f"rows not found in {path.name}: {sorted(missing)}")
+    return {element: found[element] for element in wanted}
+
+
+def st05_elements() -> dict[str, str]:
+    """ST-05's frozen rows: AP-04's and the accepted amendment's, each digest-verified."""
+    return {
+        **_state_machine_rows(AP04_PATH, AP04_SHA256, ST05_AP04_ELEMENTS),
+        **_state_machine_rows(AP04_CYCLE_PATH, AP04_CYCLE_SHA256, ST05_CYCLE_ELEMENTS),
+    }
+
+
 def placement_elements() -> dict[str, str]:
     """`PB-2`(i) … (v), each clause split out of frozen AP-10's `PB-2` row verbatim."""
     row = next(
@@ -538,6 +605,61 @@ ST04_CONTRACT_OBLIGATIONS: dict[str, str] = {
 supersedes them — **not** a second normative inventory: the normative rows are the
 AP-07 §8 and amendment rows parsed above."""
 
+ST05_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST05-D1": "Deliverable: state/edge/guard data for M1-M4, a transcription of frozen AP-04.",
+    "ST05-D2": "Deliverable: the transition evaluator.",
+    "ST05-D3": "Deliverable: coupling checks K-1...K-10.",
+    "ST05-D4": "Deliverable: the generated transition matrix.",
+    "ST05-T1": "Test: every legal transition admissible under its guard.",
+    "ST05-T2": "Test: coupling invariants hold.",
+    "ST05-T3": "Test: the three legitimate occupancies expressible (SV11-11).",
+    "ST05-T4": "Test: the stratified cycle predicate in all four cases (SV11-4).",
+    "ST05-N1": "Negative: every illegal (state, edge) pair refused, by generated totality "
+    "(SV11-2).",
+    "ST05-N2": "Negative: terminals have no outgoing edge (SV11-7).",
+    "ST05-N3": "Negative: no self-loop.",
+    "ST05-N4": "Negative: no edge from S6/S7/S8 to S1...S5.",
+    "ST05-N5": "Negative: no guard consults time, order, authorship or count (SV11-10).",
+    "ST05-N6": "Negative: EPOCH_HALTED has no component-triggered exit.",
+    "ST05-M1": "Mutation: every transition guard, per condition, killing test named.",
+    "ST05-M2": "Mutation: each RP-* and CE-* condition individually (SV11-3).",
+    "ST05-R1": "Restart/persistence: position reconstructed from the RC-34 chain after "
+    "restart; no mutable current-state field exists (Class A).",
+    "ST05-C1": "Conformance: the model data matches the frozen text edge by edge (SV11-12).",
+    "ST05-B1": "Boundary: no RA-00...RA-09, candidate authority, binding match, root "
+    "selection or envelope derivation; a recorded result is read only once it exists.",
+    "ST05-G1": "Static gate: the GP-AUTO gates extended to the ST-05 modules (SD11-12b); "
+    "provider-free; no schema change.",
+    "ST05-A1": "Acceptance: VL11-4 obligations met.",
+    "ST05-A2": "Acceptance: generated matrix complete with every pair disposed.",
+}
+"""Labels for `GP-AUTO-ST-05`'s own contract rows (AP-11 §16) — as the earlier stages'
+labels, **not** a second normative inventory: the normative rows are parsed above."""
+
+OWED_AT_ST04_ACCEPTANCE: dict[str, str] = {
+    "AP03-I01": "GP-AUTO-ST-06",
+    "AP03-I02": "GP-AUTO-ST-06",
+    "AP03-I06": "GP-AUTO-ST-06",
+    "AP03-I07": "GP-AUTO-ST-06",
+    "AP03-I08": "GP-AUTO-ST-07",
+    "AP03-I11": "GP-AUTO-ST-08",
+    "AP03-I12": "GP-AUTO-ST-05",
+    "AP03-I13": "GP-AUTO-ST-06",
+    "AP03-I14": "GP-AUTO-ST-06",
+    "AP03-I15": "GP-AUTO-ST-06",
+    "AP03-I18": "GP-AUTO-ST-06",
+    "AP03-I24": "GP-AUTO-ST-09",
+    "AP03-I28": "GP-AUTO-ST-08",
+    "AP03-I30": "GP-AUTO-ST-06",
+    "AP03-I36": "GP-AUTO-ST-09",
+    "PB-2(ii)": "GP-AUTO-ST-17",
+    "PB-2(iii)": "GP-AUTO-ST-17",
+    "PB-2(v)": "GP-AUTO-ST-17",
+    "EQ-6": "GP-AUTO-ST-06",
+}
+"""The nineteen rows owed to a later stage when ST-04 was accepted — a historical record, so
+a row owed then and discharged since can be checked against the stage that owed it."""
+
 OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
     "ID-3": "GP-AUTO-ST-03",
     "ID-4": "GP-AUTO-ST-03",
@@ -580,12 +702,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
     "AP03-I11": (
         "GP-AUTO-ST-08",
         "Non-convertibility is enforced where state is classified, not where it is typed.",
-    ),
-    "AP03-I12": (
-        "GP-AUTO-ST-05",
-        "'One envelope identity, one activation' is a cardinality the state machine "
-        "enforces. Minted-not-content identity and the absence of any revive operation "
-        "already hold and are tested here.",
     ),
     "AP03-I13": ("GP-AUTO-ST-06", "Envelope <= ceiling is a comparison this stage does not make."),
     "AP03-I14": ("GP-AUTO-ST-06", "Re-derivation is an act, and AP-08 governs whether one occurs."),
@@ -651,6 +767,84 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "Indeterminate is never equivalence, and is shown here in every form. The rest "
         "of the rule — record an AuthorityAmbiguity naming the identity and disagreeing "
         "classes, constitute no instance, do not begin the stage — is root resolution.",
+    ),
+    # --- GP-AUTO-ST-05: AP-04 invariants whose remaining clause is a later stage's act ---
+    "AP04-I03": (
+        "GP-AUTO-ST-06",
+        "ST-05 models no exclusion edge and reads the eligible multiplicity as a supplied "
+        "fact; that the outcome is determined solely by the candidates remaining after "
+        "exclusion is root resolution (AP-11 §16 ST-06: AP-04 M1, V-16...V-18).",
+    ),
+    "AP04-I12": (
+        "GP-AUTO-ST-06",
+        "B6b routes S5 to S8 past both step states, which ST-05 verifies; that no envelope "
+        "is derived for either role is a derivation outcome (as AP03-I30).",
+    ),
+    "AP04-I22": (
+        "GP-AUTO-ST-08",
+        "A property of governance-event records and their classification, not of an edge "
+        "(as AP03-I28).",
+    ),
+    "AP04-I25": (
+        "GP-AUTO-ST-16",
+        "Within an epoch no concurrency is modelled and K-5/K-10 are checked here; that at "
+        "most one epoch per repository is non-terminal is a bound across epochs no ST-05 "
+        "guard states (B1's guard is AP-04's), realized by the coordinator (AP-01 §13).",
+    ),
+    "AP04-I30": (
+        "GP-AUTO-ST-09",
+        "No edge is triggered by raising a candidate, and no B14 exists — verified here. "
+        "Recording and carrying the candidate to the gate is AP-05's lifecycle.",
+    ),
+    "AP04-I31": (
+        "GP-AUTO-ST-09",
+        "The prefix is acyclic and S4 has one forward inbound edge — verified here. That a "
+        "zero-finding PASS produces a real empty set, and a failed outcome none, is freeze "
+        "behaviour (as AP03-I36).",
+    ),
+    "AP04-I32": (
+        "GP-AUTO-ST-10",
+        "C6 exists with its three authority-loss alternatives — verified here. That the "
+        "outcome is then not adopted in whole or in part is outcome ingestion and adoption.",
+    ),
+    "AP04-I35": (
+        "GP-AUTO-ST-08",
+        "ACTIVATION_COMPLETED has no outgoing edge — verified here. Recording the late "
+        "violation as Case B with its timing is attribution and classification.",
+    ),
+    "AP04-I36": (
+        "GP-AUTO-ST-08",
+        "The stratified completion assessment (AP-04 §5.3.1) is among ST-08's frozen "
+        "inputs; ST-05 reads CP-4 as a supplied fact.",
+    ),
+    "AP04-I45": (
+        "GP-AUTO-ST-09",
+        "CE-0d sits in Tier 0 here; that CYCLE_BOUND's domain excludes every post-freeze "
+        "candidate is the cycle lifecycle ST-09 implements.",
+    ),
+    "AP04-I47": (
+        "GP-AUTO-ST-09",
+        "The three budget dispositions route correctly here (exhausted to B8, unavailable "
+        "or indeterminate to neither); the finite budget itself is AP-08 CB-*'s, which "
+        "ST-09 implements.",
+    ),
+    "AP04-I48": (
+        "GP-AUTO-ST-15",
+        "Nothing here writes or removes anything; that every cycle's scope and verdicts "
+        "travel to the gate is the gate evidence derivation.",
+    ),
+    "AP04-I49": (
+        "GP-AUTO-ST-06",
+        "ST-05 owns only C2's dispatch admissibility (OP-8(i)): the admitted obligation set "
+        "equals ST-04's DV-3 CYCLE_BOUND, read and never recomputed, and CYCLE_BOUND enters "
+        "no derivation guard here. That it is never an input to the envelope derivation "
+        "function is envelope derivation, and enforcement at adoption (OP-8(ii), X-08) "
+        "is not ST-05's.",
+    ),
+    "AP04-I50": (
+        "GP-AUTO-ST-09",
+        "The applicable obligation set is AP-05's lifecycle; ST-05 reads CE-4 as a "
+        "supplied fact and selects no discharge policy.",
     ),
 }
 """For every element not yet discharged: its first executable stage.
@@ -722,6 +916,8 @@ def inventory() -> dict[str, str]:
         **ap07_derivation_elements(),
         **st04_amendment_elements(),
         **ST04_CONTRACT_OBLIGATIONS,
+        **st05_elements(),
+        **ST05_CONTRACT_OBLIGATIONS,
     }
 
 
@@ -993,7 +1189,9 @@ def main(argv: list[str] | None = None) -> int:
     for element in ("DV-3", "DV-5"):
         row = by_element[element]
         print(f"{element}: {row.disposition} by {row.implementing}.")
-    print("ST04_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
+    row = by_element["AP03-I12"]
+    print(f"AP03-I12: {row.disposition} by {row.implementing}.")
+    print("ST05_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
     return status
 
 
