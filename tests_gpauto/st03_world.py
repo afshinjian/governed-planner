@@ -46,6 +46,7 @@ from gpauto.authorization import (
 from gpauto.bounds import (
     ActionClass,
     AuthorityBounds,
+    AuthorityCeilingMember,
     ReadBoundary,
     ScopeFrameBounds,
     ToolCategory,
@@ -275,6 +276,15 @@ def bounds(frame: Frame) -> AuthorityBounds:
     )
 
 
+def ceiling_member(frame: Frame) -> AuthorityCeilingMember:
+    """The frame's one-member `RA-07` ceiling: IMPLEMENTER, with the ten dimensions of
+    `bounds(frame)` and no `E-14` (S6G2-2(c))."""
+    envelope_bounds = bounds(frame)
+    return AuthorityCeilingMember(
+        **{name: getattr(envelope_bounds, name) for name in AuthorityCeilingMember.model_fields}
+    )
+
+
 def frame(tag: str = "") -> tuple[Frame, list[IngestRecord]]:
     """Scope-frame, authorization and decision records, as the outside party supplies."""
     project = ProjectId(value=f"project{tag}")
@@ -316,7 +326,7 @@ def frame(tag: str = "") -> tuple[Frame, list[IngestRecord]]:
                 repository_boundary=repository,
                 baseline=baseline,
                 authorized_roles=(Role.IMPLEMENTER,),
-                authority_ceiling=bounds(partial),
+                authority_ceiling=(ceiling_member(partial),),
                 owner_human_label_present=True,
                 preflight_permission=BoundedPreflightPermission.PERMITTED,
                 liveness=LiveDisposition(),

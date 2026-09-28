@@ -186,8 +186,8 @@ def test_reading_positions_and_evaluating_write_nothing(directory: Path) -> None
     statements = store_schema.schema_statements(store_schema.build_catalogue())
     digest = hashlib.sha256("\n;\n".join(statements).encode("utf-8")).hexdigest()
     assert digest == PINNED_SCHEMA_DIGEST
-    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/3"
-    assert store_schema.STORAGE_VERSION == 3
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/4"
+    assert store_schema.STORAGE_VERSION == 4
 
 
 @pytest.mark.traces("ST05-R1", "ST05-G1", "ST05-D2")

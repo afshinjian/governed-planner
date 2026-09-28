@@ -38,6 +38,7 @@ from gpauto.bounds import (
     ActionClass,
     AuthoritativeInputDesignation,
     AuthorityBounds,
+    AuthorityCeilingMember,
     ReadBoundary,
     ScopeFrameBounds,
     ToolCategory,
@@ -193,6 +194,42 @@ def reviewing_bounds() -> AuthorityBounds:
     )
 
 
+def implementer_ceiling_member() -> AuthorityCeilingMember:
+    """An `RA-07` member for IMPLEMENTER, shaped per S6G2-2(c): writing, write boundary
+    carried, no `E-20`, Git `NONE`, no external class."""
+    return AuthorityCeilingMember(
+        role_applicability=Role.IMPLEMENTER,
+        action_classes=(ActionClass(name="edit-project-file"),),
+        read_boundary=ReadBoundary(scopes=("src/",)),
+        write_mode=WriteMode.WRITING,
+        write_boundary=Carried[WriteBoundary](value=WriteBoundary(scopes=("src/",))),
+        tool_categories=(ToolCategory(name="file-edit"),),
+        external_action_classes=(),
+        git_capability_class=GitCapabilityClass.NONE,
+        scope_frame=scope_frame_bounds(),
+        authoritative_input_designation=NotApplicable(),
+    )
+
+
+def reviewer_ceiling_member() -> AuthorityCeilingMember:
+    """An `RA-07` member for DISCOVERY_REVIEWER, shaped per S6G2-2(d): read-only, no write
+    boundary, `E-20` carried within its read scopes, Git `BOUNDED_READ`."""
+    return AuthorityCeilingMember(
+        role_applicability=Role.DISCOVERY_REVIEWER,
+        action_classes=(ActionClass(name="read-project-file"),),
+        read_boundary=ReadBoundary(scopes=("src/", "tests/")),
+        write_mode=WriteMode.READ_ONLY,
+        write_boundary=NotApplicable(),
+        tool_categories=(ToolCategory(name="file-read"),),
+        external_action_classes=(),
+        git_capability_class=GitCapabilityClass.BOUNDED_READ,
+        scope_frame=scope_frame_bounds(),
+        authoritative_input_designation=Carried[AuthoritativeInputDesignation](
+            value=AuthoritativeInputDesignation(designated_scopes=("src/",))
+        ),
+    )
+
+
 def authority_bearing_content() -> AuthorityBearingContent:
     return AuthorityBearingContent(
         project=PROJECT_ID,
@@ -201,7 +238,7 @@ def authority_bearing_content() -> AuthorityBearingContent:
         repository_boundary=REPOSITORY_ID,
         baseline=BASELINE_ID,
         authorized_roles=(Role.IMPLEMENTER,),
-        authority_ceiling=writing_bounds(),
+        authority_ceiling=(implementer_ceiling_member(),),
         owner_human_label_present=True,
         preflight_permission=BoundedPreflightPermission.PERMITTED,
         liveness=LiveDisposition(),
@@ -255,7 +292,7 @@ def owner_authorization() -> OwnerAuthorization:
         repository_boundary=REPOSITORY_ID,
         baseline=BASELINE_ID,
         authorized_roles=(Role.IMPLEMENTER, Role.DISCOVERY_REVIEWER),
-        authority_ceiling=writing_bounds(),
+        authority_ceiling=(implementer_ceiling_member(), reviewer_ceiling_member()),
         owner_human_label=OwnerHumanLabel(label="OWNER"),
         preflight_permission=BoundedPreflightPermission.PERMITTED,
         liveness=LiveDisposition(),

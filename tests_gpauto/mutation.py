@@ -108,13 +108,13 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final
+from typing import Annotated, Final
 
 if __package__ in (None, ""):  # pragma: no cover - only when run as a script
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import pytest
-from pydantic import BaseModel, ConfigDict, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from gpauto import (
     codec,
@@ -125,8 +125,12 @@ from gpauto import (
     store,
     store_schema,
 )
-from gpauto.authorization import AuthorizationRecord
+from gpauto.absence import NotApplicable, RoleConditional
+from gpauto.authorization import AuthorityBearingContent, AuthorizationRecord
+from gpauto.bounds import AuthorityBounds, AuthorityCeilingMember
+from gpauto.identity import FrozenFindingSetId
 from gpauto.preimage import ArtifactContentPreimage, StageContractContent, StageContractPreimage
+from gpauto.vocabulary import ExternalActionClass
 
 GUARD_TAG: Final[re.Pattern[str]] = re.compile(r"# guard:([a-z_]+)")
 
@@ -297,6 +301,36 @@ def _record_accepting_undeclared_fields() -> type[BaseModel]:
         model_config = ConfigDict(extra="ignore")
 
     return Mutant
+
+
+def _record_with_ceiling(annotation: object) -> type[BaseModel]:
+    """`AuthorizationRecord` whose content's `authority_ceiling` is typed `annotation`."""
+    content = create_model(
+        "MutantContent", __base__=AuthorityBearingContent, authority_ceiling=(annotation, ...)
+    )
+    return create_model("Mutant", __base__=AuthorizationRecord, content=(content, ...))
+
+
+def _member_admitting_frozen_set_reference() -> type[BaseModel]:
+    class ReferencingMember(AuthorityCeilingMember):
+        frozen_set_reference: RoleConditional[FrozenFindingSetId] = NotApplicable()
+
+    return _record_with_ceiling(Annotated[tuple[ReferencingMember, ...], Field(min_length=1)])
+
+
+def _member_accepting_undeclared_fields() -> type[BaseModel]:
+    class OpenMember(AuthorityCeilingMember):
+        model_config = ConfigDict(extra="ignore")
+
+    return _record_with_ceiling(Annotated[tuple[OpenMember, ...], Field(min_length=1)])
+
+
+def _ceiling_without_min_length() -> type[BaseModel]:
+    return _record_with_ceiling(tuple[AuthorityCeilingMember, ...])
+
+
+def _ceiling_as_single_bounds() -> type[BaseModel]:
+    return _record_with_ceiling(AuthorityBounds)
 
 
 def _artifact_envelope_accepting_any_class() -> type[BaseModel]:
@@ -1377,6 +1411,38 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
         build=_artifact_envelope_accepting_any_encoding,
         killer=f"{CODEC_TESTS}::test_an_artifact_preimage_under_another_content_encoding_is_refused",
     ),
+    SchemaMutant(
+        guard="ga_codec_decode",
+        identifier="DEC-08-member-admits-frozen-set-reference",
+        description="AuthorityCeilingMember gains frozen_set_reference (E-14) — SP6-V16",
+        target="AuthorizationRecord",
+        build=_member_admitting_frozen_set_reference,
+        killer=f"{CODEC_TESTS}::test_a_ceiling_member_carrying_frozen_set_reference_is_refused",
+    ),
+    SchemaMutant(
+        guard="ga_codec_decode",
+        identifier="DEC-09-member-extra-ignored",
+        description='AuthorityCeilingMember: extra="forbid" -> extra="ignore" — SP6-V16',
+        target="AuthorizationRecord",
+        build=_member_accepting_undeclared_fields,
+        killer=f"{CODEC_TESTS}::test_a_ceiling_member_with_an_undeclared_field_is_refused",
+    ),
+    SchemaMutant(
+        guard="ga_codec_decode",
+        identifier="DEC-10-ceiling-min-length-dropped",
+        description="authority_ceiling: min_length=1 dropped — SP6-V16",
+        target="AuthorizationRecord",
+        build=_ceiling_without_min_length,
+        killer=f"{CODEC_TESTS}::test_an_empty_ceiling_array_is_refused",
+    ),
+    SchemaMutant(
+        guard="ga_codec_decode",
+        identifier="DEC-11-ceiling-single-bounds",
+        description="authority_ceiling typed as the pre-correction AuthorityBounds — SP6-V16",
+        target="AuthorizationRecord",
+        build=_ceiling_as_single_bounds,
+        killer=f"{CODEC_TESTS}::test_a_pre_correction_single_object_ceiling_is_refused",
+    ),
     *ST03_MUTANTS,
     *ST04_MUTANTS,
     *ST05_MUTANTS,
@@ -1602,7 +1668,11 @@ class CorrectionDDLMutant:
 
 
 def correction_ddl_mutants() -> tuple[CorrectionDDLMutant, ...]:
-    """Each new FK, CHECK and trigger gets an independent deletion mutant."""
+    """Each new FK, CHECK and trigger gets an independent deletion mutant.
+
+    `ST06PC-1` (SP6-V17) adds two for the RC-18 `E-16` `CHECK`, appended after the
+    ST03C-1 mutants so no earlier identifier changes: the four-value list replaced by
+    version 3's three-value list, and the `CHECK` deleted."""
     statements = store_schema.schema_statements(store_schema.build_catalogue())
     mutants: list[CorrectionDDLMutant] = []
     for statement in statements:
@@ -1696,4 +1766,26 @@ def correction_ddl_mutants() -> tuple[CorrectionDDLMutant, ...]:
             or ("rc13_owner_decision__instance__" in statement)
         ):
             mutants.append(CorrectionDDLMutant(statement.split()[2], statement, ""))
+    listed = ", ".join(f"'{member.value}'" for member in ExternalActionClass)
+    check = f"CHECK (element IN ({listed}))"
+    (rc18,) = [
+        s
+        for s in statements
+        if s.startswith(
+            "CREATE TABLE rc18_authority_envelope__envelope__bounds__external_action_classes "
+        )
+    ]
+    assert rc18.count(check) == 1
+    mutants.append(
+        CorrectionDDLMutant(
+            "rc18-e16-check-v3-list",
+            rc18,
+            rc18.replace(check, "CHECK (element IN ('EGRESS', 'INSTALL', 'EXTERNAL_MUTATION'))"),
+        )
+    )
+    (line,) = [line for line in rc18.splitlines() if check in line]
+    assert line.endswith(",")
+    mutants.append(
+        CorrectionDDLMutant("rc18-e16-check-deleted", rc18, rc18.replace(line + "\n", ""))
+    )
     return tuple(mutants)

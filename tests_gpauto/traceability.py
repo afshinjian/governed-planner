@@ -868,6 +868,12 @@ CORRECTION_SOURCES = (
         30524,
         "4225a488627f08b4dacd4250fb7e70cd45561add2525f467077c086e6d562590",
     ),
+    (
+        "ST-01-ST-03-CORRECTION-ST06-role-indexed-authority-ceiling-and-schema-v4.md",
+        265,
+        44364,
+        "fc4db2969a6bd67a2a81e0e9702d0628e886b545f7f0e30970819f38f84d47da",
+    ),
 )
 
 
@@ -887,10 +893,10 @@ def correction_elements() -> dict[str, str]:
             digest,
         )
         for line in raw.decode().splitlines():
-            match = re.match(r"^\| (SC0[13]-V\d+) \| (.*) \|$", line)
+            match = re.match(r"^\| (SC0[13]-V\d+|SP6-V\d+) \| (.*) \|$", line)
             if match:
                 rows[match[1]] = match[2]
-    assert len(rows) == 31
+    assert len(rows) == 31 + 17
     rows["SC01-V14"] += " SC01_V14_IMPLEMENTATION_CLARIFICATION_ONLY: enforced at RC-13."
     return rows
 
@@ -937,7 +943,8 @@ def module_stage(path: Path) -> str:
 
 def evidence_stage(node_ids: list[str]) -> str:
     """The earliest stage among the modules carrying these tests (`TR11-4a`(i))."""
-    return min(module_stage(REPOSITORY_ROOT / node_id.split("::")[0]) for node_id in node_ids)
+    modules = {node_id.split("::")[0] for node_id in node_ids}
+    return min(module_stage(REPOSITORY_ROOT / module) for module in modules)
 
 
 def _declared(marker: str) -> dict[str, list[str]]:
@@ -963,9 +970,43 @@ def _declared(marker: str) -> dict[str, list[str]]:
     return {key: sorted(set(value)) for key, value in declarations.items()}
 
 
+SUITE_WIDE_EVIDENCE = ("SP6-V14",)
+"""Elements whose discharging evidence is the **whole** executed GP-AUTO corpus.
+
+`SP6-V14` is a regression obligation over the full GP-AUTO suite — which carries the
+ST-04/ST-05 regression and mutation tests, the correction's own mutation and gate tests,
+ruff, strict mypy, the decode/import gate, traceability consistency, and the executed
+GP-SPK and `git diff --check` nodes. Its markers alone would let four gate tests
+discharge it. Its designated evidence is therefore its markers plus every corpus test,
+so it discharges only from a complete run in which all of them passed; a partial run, a
+failure or a skip leaves it `undischarged` (`TR11-9`).
+"""
+
+
+def corpus_tests() -> list[str]:
+    """Every top-level `test_*` function's node id in the GP-AUTO corpus."""
+    node_ids: list[str] = []
+    for path in sorted(TEST_TREE.glob("test_*.py")):
+        relative = path.relative_to(REPOSITORY_ROOT).as_posix()
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
+                "test_"
+            ):
+                node_ids.append(f"{relative}::{node.name}")
+    return node_ids
+
+
 def declared_evidence() -> dict[str, list[str]]:
-    """Discharging declarations, by element. A declaration is not yet a discharge."""
-    return _declared("traces")
+    """Discharging declarations, by element. A declaration is not yet a discharge.
+
+    A `SUITE_WIDE_EVIDENCE` element's declarations are widened to the whole corpus.
+    """
+    declarations = _declared("traces")
+    for element in SUITE_WIDE_EVIDENCE:
+        if element in declarations:
+            declarations[element] = sorted(set(declarations[element]) | set(corpus_tests()))
+    return declarations
 
 
 def declared_support() -> dict[str, list[str]]:
@@ -1092,29 +1133,21 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
 
 def unknown_elements() -> list[str]:
     """Element ids declared by a test but absent from the inventory (`TR11-4`)."""
-    declared = set(declared_evidence()) | set(declared_support())
+    declared = set(_declared("traces")) | set(_declared("supports"))
     return sorted(declared - set(inventory()))
 
 
 def untraced_tests() -> list[str]:
-    """Test node ids carrying neither marker (`TR11-7`, evidence -> element)."""
+    """Test node ids carrying neither marker (`TR11-7`, evidence -> element).
+
+    Read from the **raw** markers: the `SUITE_WIDE_EVIDENCE` widening names every test
+    and would make this gate vacuous.
+    """
     traced: set[str] = set()
-    for mapping in (declared_evidence(), declared_support()):
+    for mapping in (_declared("traces"), _declared("supports")):
         for node_ids in mapping.values():
             traced.update(node_ids)
-
-    untraced: list[str] = []
-    for path in sorted(TEST_TREE.glob("test_*.py")):
-        relative = path.relative_to(REPOSITORY_ROOT).as_posix()
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in tree.body:
-            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith(
-                "test_"
-            ):
-                node_id = f"{relative}::{node.name}"
-                if node_id not in traced:
-                    untraced.append(node_id)
-    return untraced
+    return [node_id for node_id in corpus_tests() if node_id not in traced]
 
 
 def main(argv: list[str] | None = None) -> int:

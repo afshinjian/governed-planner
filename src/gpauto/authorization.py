@@ -49,7 +49,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from gpauto.absence import Determined
-from gpauto.bounds import AuthorityBounds
+from gpauto.bounds import AuthorityCeilingMember
 from gpauto.identity import (
     AuthorityAmbiguityId,
     AuthorizationRecordId,
@@ -134,6 +134,9 @@ class AuthorityBearingContent(DomainValue):
     This is what content equivalence compares — a value-level projection, not an
     entity. `RA-00` is the identity the projection is compared *within* and is
     therefore not one of its fields.
+
+    `RA-07` is role-indexed: one `AuthorityCeilingMember` per authorized worker role.
+    Its validity is evaluated at `GP-AUTO-ST-06`, never here (S6G2-2).
     """
 
     project: ProjectId
@@ -142,7 +145,7 @@ class AuthorityBearingContent(DomainValue):
     repository_boundary: RepositoryBoundaryId
     baseline: BaselineIdentityId
     authorized_roles: tuple[Role, ...]
-    authority_ceiling: AuthorityBounds
+    authority_ceiling: Annotated[tuple[AuthorityCeilingMember, ...], Field(min_length=1)]
     owner_human_label_present: bool
     preflight_permission: BoundedPreflightPermission
     liveness: LivenessFact
@@ -168,6 +171,9 @@ class OwnerAuthorization(DomainEntity):
     Carries `RA-00`…`RA-09` as one indivisible whole, and is constituted by one or
     more mutually content-equivalent valid records under one identity.
 
+    `RA-07` is role-indexed: one `AuthorityCeilingMember` per authorized worker role.
+    Its validity is evaluated at `GP-AUTO-ST-06`, never here (S6G2-2).
+
     **Not carried, and not addable by a later phase** (AP-03 §4.1): any expiry, TTL,
     wall-clock bound, issuance deadline or freshness attribute; any signature or key
     material; any reference to the `EntryStateBoundary` — non-circularity, `P-09a`;
@@ -183,7 +189,7 @@ class OwnerAuthorization(DomainEntity):
     repository_boundary: RepositoryBoundaryId
     baseline: BaselineIdentityId
     authorized_roles: tuple[Role, ...]
-    authority_ceiling: AuthorityBounds
+    authority_ceiling: Annotated[tuple[AuthorityCeilingMember, ...], Field(min_length=1)]
     owner_human_label: OwnerHumanLabel
     preflight_permission: BoundedPreflightPermission
     liveness: LivenessFact

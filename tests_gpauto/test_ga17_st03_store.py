@@ -28,6 +28,8 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
+import fixtures
+import st02_support
 import st03_ingest
 import st03_world
 from gate_scope import REPOSITORY_ROOT
@@ -82,7 +84,7 @@ from gpauto.scope_frame import (
     StageContract,
 )
 from gpauto.store import StaleSchemaRefused, StoreUnavailable, UnreadableRecord, WriteRefused
-from gpauto.vocabulary import OwnerDecisionKind, StageOutcomeDisposition
+from gpauto.vocabulary import ExternalActionClass, OwnerDecisionKind, StageOutcomeDisposition
 from st03_world import ABSENT, fresh_store, populated_store, raw
 
 GPAUTO_STAGE = "GP-AUTO-ST-03"
@@ -987,14 +989,15 @@ def _refused_after(alteration: str) -> None:
 
 
 @pytest.mark.traces("AP11-I69", "ST03-N5", "ST03-A2")
-@pytest.mark.traces("SC03-V11")
+@pytest.mark.traces("SC03-V11", "SP6-V12")
 def test_a_store_under_another_storage_version_is_refused_and_left_untouched() -> None:
     """`VM-5`, `VM-8`, `SRB11-14`: an older or newer storage version is refused as
     unavailable — never migrated, upgraded or partially read — and not written to. Version
     1 is the unaccepted candidate whose `RC-36` was keyed on the parent stage alone: it is
-    refused like any other, and no v1 reader or v1 → v2 path exists."""
-    assert store_schema.STORAGE_VERSION == 3
-    for version in (1, 2, 0, 4):
+    refused like any other, and no v1 reader or v1 → v2 path exists. Version 3, the schema
+    before `ST06PC-1`, is refused the same way (SP6-V12)."""
+    assert store_schema.STORAGE_VERSION == 4
+    for version in (1, 2, 3, 0, 5):
         _refused_after(f"PRAGMA user_version = {version}")
     with tempfile.TemporaryDirectory(prefix="gpauto-st03-") as directory:
         path = Path(directory) / "coordination.sqlite"
@@ -1003,7 +1006,7 @@ def test_a_store_under_another_storage_version_is_refused_and_left_untouched() -
             assert reopened.effective_pragmas()["recursive_triggers"] == 1
         connection = sqlite3.connect(path)
         try:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         finally:
             connection.close()
 
@@ -1045,25 +1048,30 @@ def test_an_absent_empty_or_foreign_store_is_never_created_over() -> None:
         assert _digest(foreign) == before
 
 
-@pytest.mark.traces("AP11-I69", "AP11-I68", "ST03-N5")
+@pytest.mark.traces("AP11-I69", "AP11-I68", "ST03-N5", "SP6-V11")
 def test_the_schema_is_pinned_to_its_version() -> None:
     """`SRB11-13`: any change to the table or constraint set is a new version. The DDL's
     digest is pinned against the version it belongs to, so a changed schema that kept
     its version fails here rather than passing the stale-schema check silently.
 
-    Version 3 implements ST03C-1. The exact schema content is asserted independently
-    before comparing its pinned digest."""
+    Version 4 implements `ST06PC-1` over version 3's ST03C-1. The exact schema content —
+    the version marker and the RC-18 `E-16` `CHECK` included — is asserted independently
+    before its pinned digest is compared (SP6-V11, `EV11-6`)."""
     test_st03c1_schema_content_before_digest()
+    test_st06pc1_rc18_check_rc12_ddl_and_object_counts()
     statements = store_schema.schema_statements(store_schema.build_catalogue())
     (rc36,) = [s for s in statements if s.startswith(f"CREATE TABLE {RC36} ")]
     assert f"PRIMARY KEY ({', '.join(RC36_KEY)})" in rc36
     digest = hashlib.sha256("\n;\n".join(statements).encode("utf-8")).hexdigest()
-    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/3"
-    assert store_schema.STORAGE_VERSION == 3
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/4"
+    assert store_schema.STORAGE_VERSION == 4
     assert digest == PINNED_SCHEMA_DIGEST
 
 
-PINNED_SCHEMA_DIGEST = "e0f8eabf489462843fe9b8966511bb94a7e18f2aa358193d0be488f0dc84f7c6"
+PINNED_SCHEMA_DIGEST = "a1084fa4f3a895d550667eec5098dff4bc08b02786e08f6ecea828e89fcce320"
+"""Version 4 (`ST06PC-1`). Supersedes version 3's
+`e0f8eabf489462843fe9b8966511bb94a7e18f2aa358193d0be488f0dc84f7c6`, and was re-pinned only
+after the version-4 content was asserted (SP6-V11)."""
 
 
 # --- placement: PB-2(i), and (iv) by derivation from it -------------------------------------
@@ -1270,7 +1278,13 @@ def _foreign_keys(
     }
 
 
-def assert_v3_schema(connection: sqlite3.Connection) -> None:
+RC18_E16 = "rc18_authority_envelope__envelope__bounds__external_action_classes"
+E16_CLASSES = ("EGRESS", "INSTALL", "EXTERNAL_MUTATION", "BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA")
+"""`ExternalActionClass` in declaration order, written out independently of the enum."""
+V3_E16_CHECK = "CHECK (element IN ('EGRESS', 'INSTALL', 'EXTERNAL_MUTATION'))"
+
+
+def assert_v4_schema(connection: sqlite3.Connection) -> None:
     """Independent schema-content oracle; redundant guards are checked separately."""
     from typing import get_args
 
@@ -1283,9 +1297,14 @@ def assert_v3_schema(connection: sqlite3.Connection) -> None:
         )
     }
     ddl = schema[RC13]
-    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/3"
-    assert store_schema.STORAGE_VERSION == 3
-    assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/4"
+    assert store_schema.STORAGE_VERSION == 4
+    assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+    # ST06PC-1 (SP6-21): the one E-16 CHECK carries the enum-generated four-value list.
+    assert tuple(member.value for member in ExternalActionClass) == E16_CLASSES
+    listed = ", ".join(f"'{token}'" for token in E16_CLASSES)
+    assert f"CHECK (element IN ({listed}))" in schema[RC18_E16]
+    assert V3_E16_CHECK not in "\n".join(schema.values())
     assert set(DECISION_FORMS) == {
         store_schema.variant_tag(form) for form in get_args(DecisionAct.__value__)
     }
@@ -1431,7 +1450,7 @@ def assert_v3_schema(connection: sqlite3.Connection) -> None:
 @pytest.mark.traces("SC01-V14", "SC03-V2", "SC03-V10", "SC03-V11")
 def test_st03c1_schema_content_before_digest() -> None:
     with fresh_store() as store, st03_ingest.external_connection(store.path) as connection:
-        assert_v3_schema(connection)
+        assert_v4_schema(connection)
 
 
 def _bundle_decisions(built: st03_world.World) -> tuple[OwnerDecision, ...]:
@@ -1992,3 +2011,179 @@ def test_st03c1_exceptional_production_and_non_authorizing_absence() -> None:
                     _refused_decision_rows(
                         conn, {**row, "identity": "false-production", column: "PRESENT"}
                     )
+
+
+# --- ST06PC-1: schema version 4 (SP6-V9 … SP6-V13) ------------------------------------------
+
+V3_RC12_DDL_DIGEST = "339a0a3f38d2f5ef017296560c6d0cb56bf503aa082fed4cd9e3602f67b81b80"
+"""SHA-256 of RC-12's `sqlite_schema` DDL (its table, index and two triggers, by name,
+joined as the schema digest is) under version 3, computed from the committed v3 schema
+at `0c25a06e`. RC-12 is a JSON layout, so `ST06PC-1` leaves it byte-identical (SP6-20)."""
+
+
+def _rc12_ddl_digest(connection: sqlite3.Connection) -> str:
+    rows = connection.execute(
+        "SELECT sql FROM sqlite_schema WHERE tbl_name = 'rc12_authorization_record' "
+        "AND sql IS NOT NULL ORDER BY name"
+    ).fetchall()
+    return hashlib.sha256("\n;\n".join(str(row[0]) for row in rows).encode("utf-8")).hexdigest()
+
+
+def _with_side_effect_area(built: st03_world.World) -> AuthorityEnvelopeRecord:
+    """Rewrite `built` so its RC-18 envelope's bounds carry the fourth `E-16` class."""
+    envelope = built.handles["envelope"]
+    assert isinstance(envelope, AuthorityEnvelopeRecord)
+    bounds = st02_support.rebuilt(
+        envelope.envelope.bounds,
+        external_action_classes=(ExternalActionClass.BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA,),
+    )
+    widened = st02_support.rebuilt(
+        envelope, envelope=st02_support.rebuilt(envelope.envelope, bounds=bounds)
+    )
+    built.units = [
+        tuple(widened if record is envelope else record for record in unit)
+        for unit in built.units
+    ]
+    built.handles["envelope"] = widened
+    return widened
+
+
+@pytest.mark.traces("SP6-V9", "AP11-I69")
+def test_st06pc1_schema_identity_is_version_4() -> None:
+    """SP6-V9: the schema identity and storage version are 4, and a created store says so."""
+    assert store_schema.SCHEMA_VERSION == "gpauto.coordination-store/4"
+    assert store_schema.STORAGE_VERSION == 4
+    with fresh_store() as store, st03_ingest.external_connection(store.path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+
+
+@pytest.mark.traces("SP6-V10", "RC-12", "RC-18")
+def test_st06pc1_rc18_check_rc12_ddl_and_object_counts() -> None:
+    """SP6-V10, asserted before any digest: the one `E-16` `CHECK` is the enum-generated
+    four-value list in declaration order; RC-12's DDL is byte-identical to version 3; and
+    the statement, table, trigger and index counts are version 3's."""
+    statements = store_schema.schema_statements(store_schema.build_catalogue())
+    assert len(statements) == 247
+    listed = ", ".join(f"'{member.value}'" for member in ExternalActionClass)
+    assert listed == ", ".join(f"'{token}'" for token in E16_CLASSES)
+    carrying = [s for s in statements if "BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA" in s]
+    assert len(carrying) == 1
+    assert carrying[0].startswith(f"CREATE TABLE {RC18_E16} ")
+    assert f"CHECK (element IN ({listed}))" in carrying[0]
+    assert not [s for s in statements if V3_E16_CHECK in s]
+    with fresh_store() as store, st03_ingest.external_connection(store.path) as connection:
+        counts = dict(
+            connection.execute(
+                "SELECT type, count(*) FROM sqlite_schema WHERE sql IS NOT NULL GROUP BY type"
+            ).fetchall()
+        )
+        assert counts == {"table": 71, "trigger": 169, "index": 7}
+        assert _rc12_ddl_digest(connection) == V3_RC12_DDL_DIGEST
+
+
+@pytest.mark.traces("SP6-V10", "SP6-V17", "RC-18")
+def test_st06pc1_an_envelope_carrying_the_side_effect_class_stores_and_reads_back() -> None:
+    """SP6-V10: an RC-18 envelope whose bounds carry `BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA`
+    is stored and read back equal, and a token the enum does not declare is refused by
+    the `CHECK`. This is also the behavioural killer of the SP6-V17 mutant that restores
+    the version-3 three-value list."""
+    built = st03_world.world()
+    widened = _with_side_effect_area(built)
+    with fresh_store() as store:
+        try:
+            st03_world.populate(store, built)
+        except WriteRefused as refused:
+            pytest.fail(f"the declared side-effect class was refused: {refused}")
+        assert store.read(AuthorityEnvelopeRecord, widened.envelope.identity) == widened
+        connection = raw(store)
+        try:
+            with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+                connection.execute(
+                    f"INSERT INTO {RC18_E16} VALUES (?, 1, ?)",
+                    (widened.envelope.identity.value, "UNDECLARED_CLASS"),
+                )
+        finally:
+            connection.close()
+
+
+@pytest.mark.traces("SP6-V12", "AP11-I69", "ST03-N5")
+def test_st06pc1_a_store_marked_4_with_the_v3_check_is_refused_and_left_untouched() -> None:
+    """SP6-V12: the version marker alone is not trusted. A store marked 4 whose RC-18
+    `CHECK` is still the version-3 list is refused by the exact structure comparison —
+    no migration path — and its bytes are left unchanged."""
+    original = store_schema.schema_statements
+
+    def v3_check(catalogue: store_schema.Catalogue) -> tuple[str, ...]:
+        listed = ", ".join(f"'{token}'" for token in E16_CLASSES)
+        return tuple(
+            s.replace(f"CHECK (element IN ({listed}))", V3_E16_CHECK) for s in original(catalogue)
+        )
+
+    with tempfile.TemporaryDirectory(prefix="gpauto-st03-") as directory:
+        path = Path(directory) / "coordination.sqlite"
+        with pytest.MonkeyPatch.context() as patch:
+            patch.setattr(store_schema, "schema_statements", v3_check)
+            store_module.create_store(path).close()
+        connection = sqlite3.connect(path)
+        try:
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+            (sql,) = connection.execute(
+                "SELECT sql FROM sqlite_schema WHERE name = ?", (RC18_E16,)
+            ).fetchone()
+            assert V3_E16_CHECK in sql
+        finally:
+            connection.close()
+        before = _digest(path)
+        with pytest.raises(StaleSchemaRefused, match="no migration path"):
+            store_module.open_store(path)
+        assert _digest(path) == before
+
+
+@pytest.mark.traces("SP6-V13", "RC-12", "ST03-N6")
+def test_st06pc1_no_migration_and_a_pre_correction_payload_is_unreadable() -> None:
+    """SP6-V13: there is no conversion, upgrade or version-3 reader; `RECORD_FORMAT` is
+    unchanged; and an RC-12 payload in the pre-correction ceiling shape inside a version-4
+    store enumerates as `UnreadableRecord` — surfaced, never dropped, never decoded."""
+    assert store_schema.RECORD_FORMAT == "gpauto.coordination-record/1"
+    assert store_schema.COVERED_RECORD_FORMATS == frozenset({store_schema.RECORD_FORMAT})
+    for module in (store_module, store_schema):
+        tree = ast.parse(Path(module.__file__ or "").read_text(encoding="utf-8"))
+        names = [
+            node.name.lower()
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef | ast.ClassDef)
+        ]
+        for fragment in ("migrat", "upgrade", "convert", "legacy", "v3"):
+            assert not [name for name in names if fragment in name], (module.__name__, fragment)
+        literals = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)}
+        stale = {f"gpauto.coordination-store/{version}" for version in (1, 2, 3)}
+        assert not stale & literals, module.__name__
+
+    with populated_store() as (store, built):
+        record = built.ingest[5]
+        assert isinstance(record, AuthorizationRecord)
+        members = ",".join(m.model_dump_json() for m in record.content.authority_ceiling)
+        current = '"authority_ceiling":[' + members + "]"
+        payload = record.model_dump_json()
+        assert payload.count(current) == 1
+        single = payload.replace(
+            current, '"authority_ceiling":' + fixtures.writing_bounds().model_dump_json()
+        ).replace(record.identity.value, "record-pre-correction")
+        with st03_ingest.external_connection(store.path) as connection:
+            connection.execute(
+                "INSERT INTO rc12_authorization_record VALUES (?, ?, ?, ?)",
+                (
+                    "record-pre-correction",
+                    record.authorization_identity.value,
+                    single,
+                    store_schema.RECORD_FORMAT,
+                ),
+            )
+        records = store.enumerate(AuthorizationRecord)
+        unreadable = [r for r in records if isinstance(r, UnreadableRecord)]
+        assert len(records) == 4 and len(unreadable) == 1
+        assert unreadable[0].key == (("identity", "record-pre-correction"),)
+        assert isinstance(
+            store.read(AuthorizationRecord, AuthorizationRecordId(value="record-pre-correction")),
+            UnreadableRecord,
+        )

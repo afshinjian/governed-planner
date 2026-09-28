@@ -88,14 +88,14 @@ def test_the_st03_guard_set_is_the_contracts_and_every_guard_is_mutated() -> Non
 
 @pytest.mark.traces("ST03-M2", "ST03-M4", "RC-13", "RC-35", "RC-36")
 @pytest.mark.parametrize("mutant", mutation.correction_ddl_mutants(), ids=lambda m: m.identifier)
-@pytest.mark.traces("SC01-V14", "SC03-V13")
+@pytest.mark.traces("SC01-V14", "SC03-V13", "SP6-V17")
 def test_st03c1_each_schema_mutant_is_killed_with_surviving_control(
     mutant: mutation.CorrectionDDLMutant,
 ) -> None:
     import sqlite3
 
     from gpauto import store_schema
-    from test_ga17_st03_store import assert_v3_schema
+    from test_ga17_st03_store import assert_v4_schema
 
     for control in (True, False):
         statements = store_schema.schema_statements(store_schema.build_catalogue())
@@ -106,12 +106,12 @@ def test_st03c1_each_schema_mutant_is_killed_with_surviving_control(
                 ddl = statement if control or statement != mutant.statement else mutant.replacement
                 if ddl:
                     connection.execute(ddl)
-            connection.execute("PRAGMA user_version = 3")
+            connection.execute("PRAGMA user_version = 4")
             if control:
-                assert_v3_schema(connection)
+                assert_v4_schema(connection)
             else:
                 with pytest.raises(AssertionError):
-                    assert_v3_schema(connection)
+                    assert_v4_schema(connection)
         finally:
             connection.close()
 
@@ -139,6 +139,50 @@ def test_st03c1_semantic_mutants_are_killed_by_behavior(identifier: str) -> None
         patch.setattr(store_schema, "schema_statements", changed)
         with pytest.raises((AssertionError, pytest.fail.Exception, sqlite3.IntegrityError)):
             killer()
+
+
+@pytest.mark.traces("SP6-V17", "RC-18")
+def test_st06pc1_the_v3_check_list_mutant_is_also_killed_by_behavior() -> None:
+    """SP6-V17: the RC-18 mutant restoring version 3's three-value `E-16` list is killed
+    by the SP6-V10 store test as well as by the content oracle — an envelope carrying
+    the declared side-effect class is refused under it. The control survives."""
+    import test_ga17_st03_store as evidence
+    from gpauto import store_schema
+
+    mutant = next(
+        m for m in mutation.correction_ddl_mutants() if m.identifier == "rc18-e16-check-v3-list"
+    )
+    killer = evidence.test_st06pc1_an_envelope_carrying_the_side_effect_class_stores_and_reads_back
+    original = store_schema.schema_statements
+    killer()  # surviving control
+
+    def changed(catalogue: store_schema.Catalogue) -> tuple[str, ...]:
+        return tuple(
+            mutant.replacement if s == mutant.statement else s for s in original(catalogue)
+        )
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(store_schema, "schema_statements", changed)
+        with pytest.raises(pytest.fail.Exception, match="side-effect class was refused"):
+            killer()
+
+
+@pytest.mark.traces("SP6-V17", "AP11-I69")
+def test_st06pc1_the_rc18_correction_mutants_exist_and_stale_schema_guards_hold_at_4() -> None:
+    """SP6-V17: exactly the two RC-18 correction mutants are generated, under the ST03C-1
+    label precedent (no new guard), and the `ga_store_stale_schema` line mutants are run
+    against version 4 — by the parametrized test above, whose killer pins version 4."""
+    from gpauto import store_schema
+
+    rc18 = [m for m in mutation.correction_ddl_mutants() if m.identifier.startswith("rc18-")]
+    assert [m.identifier for m in rc18] == ["rc18-e16-check-v3-list", "rc18-e16-check-deleted"]
+    assert {m.guard for m in rc18} == {"ga_store_referential_integrity"}
+    assert {m.killer for m in rc18} == {"test_st03c1_schema_content_before_digest"}
+    assert store_schema.STORAGE_VERSION == 4
+    assert {m.identifier for m in STALE_SCHEMA} >= {
+        "SS-01-version-unchecked",
+        "SS-03-refusal-ignored",
+    }
 
 
 @pytest.mark.traces("ST03-M2", "ST01-N7")

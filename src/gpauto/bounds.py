@@ -1,16 +1,26 @@
-"""`AuthorityBounds` — one value-type, eleven dimensions, used in exactly two places.
+"""`AuthorityBounds` and `AuthorityCeilingMember` — the envelope's value and the ceiling's.
 
 Design basis: AP-03 §4.8 (ceiling vs envelope, the dimension set), §4.8.1 (Git
 observable vocabulary and three-tier grantability), §4.8.2 (role-conditional
 applicability), §14 (role/provider separation); `AP03-I13`, `AP03-I15`, `AP03-I16`,
-`AP03-I17`; AP-11 §7 (`NV11-6`).
+`AP03-I17`; AP-11 §7 (`NV11-6`); ST-06 clarification S6G2-1…S6G2-6, realized by
+correction `ST06PC-1`.
 
-AP-03 merges `AuthorityCeiling` into this one value-type rather than giving it an
-entity of its own. The reason is structural: a separately identified ceiling could
-outlive an authorization or be shared between two, which would make it a **second
-authority source**. Here the ceiling is `RA-07`'s value inside the authorization, an
-envelope carries a granted value of the same type, and `envelope ≤ ceiling` is
-expressible at all only because both are the same type.
+AP-03 gives `AuthorityCeiling` no entity of its own. The reason is structural: a
+separately identified ceiling could outlive an authorization or be shared between
+two, which would make it a **second authority source**. The ceiling is therefore an
+identity-less value inside the authorization.
+
+**`AuthorityBounds` is the envelope's eleven-dimension value.** **`RA-07` is a
+role-indexed tuple of `AuthorityCeilingMember`**: one member per authorized worker
+role, each carrying the ten dimensions the ceiling conveys (S6G2-1, S6G2-2). A single
+bounds value cannot be the ceiling of an authorization that authorizes a writing and a
+reviewing role together, because `E-12` and `E-20` are applicable to disjoint roles.
+**`E-14` is envelope-only**: a member has no frozen-set reference, and an envelope's
+`E-14` comes only from the frozen-set input (S6G2-3, S6G2-5). The two types are
+distinct and neither inherits from the other, so neither can stand in for the other;
+the ten shared dimensions carry identical types, so `envelope ≤ ceiling` is well-typed
+dimension by dimension with no `E-14` term (S6G2-4, S6G2-6).
 
 **No ordering is implemented here.** AP-03 §4.8 defines a dimension-wise partial
 order, and `AP03-I13` makes envelope derivation a total function with no free
@@ -160,12 +170,18 @@ class ScopeFrameBounds(DomainValue):
     baseline: BaselineIdentityId
 
 
+type ActionClasses = tuple[ActionClass, ...]
+type RoleConditionalWriteBoundary = RoleConditional[WriteBoundary]
+type ToolCategories = tuple[ToolCategory, ...]
+type ExternalActionClasses = tuple[ExternalActionClass, ...]
+type RoleConditionalAuthoritativeInputDesignation = RoleConditional[AuthoritativeInputDesignation]
+
+
 class AuthorityBounds(DomainValue):
     """The eleven dimensions of AP-03 §4.8, and nothing else.
 
-    Carried by an `OwnerAuthorization` as its ceiling (`RA-07`) and by an
-    `AuthorityEnvelope` as its granted bounds. Whether one is at or below another is
-    a comparison this stage does not implement.
+    Carried by an `AuthorityEnvelope` as its granted bounds. Whether one is at or below
+    another is a comparison this stage does not implement.
 
     A bounds value naming an external class asserts that the class is **authorized**,
     never that anything is prevented: authorization decision and technical prevention
@@ -174,13 +190,46 @@ class AuthorityBounds(DomainValue):
     """
 
     role_applicability: Role
-    action_classes: tuple[ActionClass, ...]
+    action_classes: ActionClasses
     read_boundary: ReadBoundary
     write_mode: WriteMode
-    write_boundary: RoleConditional[WriteBoundary]
-    tool_categories: tuple[ToolCategory, ...]
-    external_action_classes: tuple[ExternalActionClass, ...]
+    write_boundary: RoleConditionalWriteBoundary
+    tool_categories: ToolCategories
+    external_action_classes: ExternalActionClasses
     git_capability_class: GitCapabilityClass
     scope_frame: ScopeFrameBounds
-    authoritative_input_designation: RoleConditional[AuthoritativeInputDesignation]
+    authoritative_input_designation: RoleConditionalAuthoritativeInputDesignation
     frozen_set_reference: RoleConditional[FrozenFindingSetId]
+
+
+class AuthorityCeilingMember(DomainValue):
+    """One role's ceiling: one member of `RA-07`'s role-indexed tuple (S6G2-1, S6G2-2).
+
+    Ten of the eleven AP-03 §4.8 dimensions, each annotated with the identical object
+    the same-named `AuthorityBounds` field carries — the five generic dimensions through
+    the shared aliases above — so every conveyed dimension keeps its typed meaning.
+    `role_applicability` is the member's single role and is the role index.
+
+    **No `E-14`.** There is no frozen-set reference in any form, and under
+    `extra="forbid"` a member carrying one is inexpressible at construction and at
+    decode (S6G2-3, S6G2-5).
+
+    **No inheritance relation with `AuthorityBounds`, in either direction.** Strict
+    validation accepts a subclass where a base is annotated, so inheritance would let
+    one type stand in for the other.
+
+    **It validates nothing.** Member uniqueness, the per-role shapes, `E-20 ⊆ E-11`,
+    REMEDIATOR ⊆ IMPLEMENTER and the `E-16` restriction are `RA-07` validity, evaluated
+    by `GP-AUTO-ST-06` over decoded records (S6G2-2).
+    """
+
+    role_applicability: Role
+    action_classes: ActionClasses
+    read_boundary: ReadBoundary
+    write_mode: WriteMode
+    write_boundary: RoleConditionalWriteBoundary
+    tool_categories: ToolCategories
+    external_action_classes: ExternalActionClasses
+    git_capability_class: GitCapabilityClass
+    scope_frame: ScopeFrameBounds
+    authoritative_input_designation: RoleConditionalAuthoritativeInputDesignation

@@ -124,13 +124,15 @@ from gpauto.scope_frame import (
     StageContract,
 )
 
-SCHEMA_VERSION: Final[str] = "gpauto.coordination-store/3"
+SCHEMA_VERSION: Final[str] = "gpauto.coordination-store/4"
 """The schema's identity (`SRB11-12`). A different table or constraint set is a different
-version (`SRB11-13`); nothing migrates between versions (`VM-8`). Version 3 realizes
-ST01C-2 decision referents and ST03C-1 bindings. Both v1 and v2 are stale and refused."""
+version (`SRB11-13`); nothing migrates between versions (`VM-8`). Version 4 realizes
+`ST06PC-1`: the role-indexed `RA-07` ceiling and the RC-18 `E-16` member
+`BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA`, on top of version 3's ST01C-2 decision referents
+and ST03C-1 bindings. v1, v2 and v3 are stale and refused."""
 
 
-STORAGE_VERSION: Final[int] = 3
+STORAGE_VERSION: Final[int] = 4
 """The physical marker persisted in `PRAGMA user_version`, following the frozen
 `governance.sqlite` pattern (`EB-13`). It is paired with an exact structural comparison,
 because `user_version` defaults to 0 and alone cannot tell *new* from *old*."""

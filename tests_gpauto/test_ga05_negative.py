@@ -20,7 +20,7 @@ import pytest
 from pydantic import ValidationError
 
 import fixtures
-from gpauto.absence import KnownAbsent, Present
+from gpauto.absence import Carried, KnownAbsent, NotApplicable, Present
 from gpauto.activation import (
     BaselineIdentityReference,
     EntryStateBoundaryReference,
@@ -36,7 +36,7 @@ from gpauto.authorization import (
     OwnerAuthorization,
     SameIdentityConflictForm,
 )
-from gpauto.bounds import AuthorityBounds
+from gpauto.bounds import AuthorityBounds, AuthorityCeilingMember
 from gpauto.coordination_records import SessionAnnotation, WorkerActivationRecord
 from gpauto.envelope import AuthorityEnvelope
 from gpauto.governance import (
@@ -46,7 +46,7 @@ from gpauto.governance import (
     Refusal,
     StageOutcomeDecision,
 )
-from gpauto.identity import GovernedStageId, OwnerAuthorizationId
+from gpauto.identity import FrozenFindingSetId, GovernedStageId, OwnerAuthorizationId
 from gpauto.review import Finding, FrozenFindingSet
 from gpauto.schema import DomainModel
 from gpauto.vocabulary import (
@@ -605,3 +605,89 @@ def test_st01c2_outcomes_o6_and_lawful_suspension() -> None:
         assert SuspendedDisposition(established_by_event=event).established_by_event == event
     with pytest.raises(ValidationError):
         SuspendedDisposition(established_by_event=AuthorityAmbiguityId(value="e"))  # type: ignore[arg-type]
+
+
+# --- ST06PC-1: the ceiling member (SP6-V3, SP6-V4) ----------------------------------------
+
+
+@pytest.mark.traces("SP6-V4", "AP03-I17", "ST01-N4")
+def test_provider_appears_in_no_ceiling_member() -> None:
+    """SP6-V4, `NV11-6` extended: no field reachable from `AuthorityCeilingMember` names a
+    provider, and no reachable model is `ProviderAssignment`. The `AuthorityBounds`,
+    `AuthorityEnvelope` and `OwnerAuthorization` assertions above still hold unchanged."""
+    reachable = reachable_models(AuthorityCeilingMember)
+    assert AuthorityCeilingMember in reachable
+    assert ProviderAssignment not in reachable
+    offenders = [
+        f"{cls.__qualname__}.{field}"
+        for cls, field in fields_of(reachable)
+        if any(word in field.lower() for word in PROVIDER_WORDS)
+    ]
+    assert offenders == []
+    assert AuthorityCeilingMember in reachable_models(OwnerAuthorization)
+
+
+@pytest.mark.traces("SP6-V3")
+@pytest.mark.parametrize(
+    "reference",
+    [NotApplicable(), Carried[FrozenFindingSetId](value=fixtures.FROZEN_SET_ID)],
+    ids=["not-applicable", "carried"],
+)
+def test_e14_is_inexpressible_in_a_ceiling_member(reference: object) -> None:
+    """SP6-3: a member has no `frozen_set_reference`, so constructing one with it is
+    refused — `Carried` and `NotApplicable` alike, since either would be an `E-14` claim."""
+    fields: dict[str, Any] = {
+        name: getattr(fixtures.implementer_ceiling_member(), name)
+        for name in AuthorityCeilingMember.model_fields
+    }
+    with pytest.raises(ValidationError) as caught:
+        AuthorityCeilingMember(**{**fields, "frozen_set_reference": reference})
+    assert [(e["type"], e["loc"]) for e in caught.value.errors()] == [
+        ("extra_forbidden", ("frozen_set_reference",))
+    ]
+    assert "frozen_set_reference" not in AuthorityCeilingMember.model_fields
+
+
+@pytest.mark.traces("SP6-V15")
+def test_st06pc1_structural_gates_hold_and_the_ceiling_modules_declare_no_function() -> None:
+    """SP6-V15: the package no-function gate, the no-base-class-annotation gate, the
+    no-ordering-operator gate and `NEVER_AN_ENTITY` hold unchanged, re-run here by call;
+    `bounds.py` and `authorization.py` declare no function, lambda or validator; and
+    `NEVER_AN_ENTITY` keeps `AuthorityCeiling` under its exact-name absence assertion,
+    with only its reason string changed."""
+    import ast
+    from pathlib import Path
+
+    import test_ga06_structural as gates
+    from gpauto import authorization, bounds
+
+    gates.test_the_package_declares_no_function_at_all()
+    gates.test_no_field_is_annotated_with_a_base_class()
+    gates.test_no_model_defines_an_ordering_or_comparison_operator()
+    for name in gates.NEVER_AN_ENTITY:
+        gates.test_a_merged_or_demoted_concept_has_no_class(name)
+    assert gates.NEVER_AN_ENTITY["AuthorityCeiling"] == (
+        "an identity-less value inside the authorization: RA-07 is a role-indexed tuple of "
+        "AuthorityCeilingMember values, not an AuthorityBounds (AP-03 §2.2; ST-06 "
+        "clarification S6G2-1, S6G2-2)"
+    )
+    for module in (bounds, authorization):
+        tree = ast.parse(Path(module.__file__ or "").read_text(encoding="utf-8"))
+        assert not [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda)
+        ], module.__name__
+        decorated = [
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ClassDef | ast.FunctionDef) and node.decorator_list
+        ]
+        assert decorated == [], module.__name__
+        imported = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+        }
+        assert not {"model_validator", "field_validator", "validator"} & imported

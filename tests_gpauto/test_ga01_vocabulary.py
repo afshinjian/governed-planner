@@ -285,3 +285,44 @@ def test_st01c2_exact_decision_and_outcome_vocabularies() -> None:
         "ABANDONED",
         "ACCEPT_PARTIAL",
     }
+
+
+@pytest.mark.traces("SP6-V5", "ST01-D3")
+def test_st06pc1_the_external_action_classes_are_exactly_four() -> None:
+    """SP6-V5: AP-03 §4.8's three, then AP-06 `XA-1`'s area, each value its name.
+
+    A ceiling member and an envelope carrying the fourth class each construct and
+    round-trip. No validator refuses `EGRESS`, `INSTALL` or `EXTERNAL_MUTATION` in a member
+    at the type level: that a member carrying one is invalid is `RA-07` validity, which
+    is `GP-AUTO-ST-06`'s (SP6-12).
+    """
+    import fixtures
+    import st02_support
+
+    assert [member.value for member in ExternalActionClass] == [
+        "EGRESS",
+        "INSTALL",
+        "EXTERNAL_MUTATION",
+        "BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA",
+    ]
+    assert [member.name for member in ExternalActionClass] == [
+        member.value for member in ExternalActionClass
+    ]
+    area = (ExternalActionClass.BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA,)
+    member = st02_support.rebuilt(
+        fixtures.implementer_ceiling_member(), external_action_classes=area
+    )
+    envelope = st02_support.rebuilt(
+        fixtures.authority_envelope(),
+        bounds=st02_support.rebuilt(fixtures.writing_bounds(), external_action_classes=area),
+    )
+    structurally_admitted = [
+        st02_support.rebuilt(fixtures.implementer_ceiling_member(), external_action_classes=(cls,))
+        for cls in (
+            ExternalActionClass.EGRESS,
+            ExternalActionClass.INSTALL,
+            ExternalActionClass.EXTERNAL_MUTATION,
+        )
+    ]
+    for instance in (member, envelope, *structurally_admitted):
+        assert type(instance).model_validate_json(instance.model_dump_json()) == instance

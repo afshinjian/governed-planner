@@ -22,7 +22,7 @@ from collections.abc import Callable, Mapping
 from types import MappingProxyType
 
 import fixtures
-from gpauto.absence import Carried
+from gpauto.absence import Carried, NotApplicable
 from gpauto.authorization import (
     AuthorityBearingContent,
     AuthorizationRecord,
@@ -30,7 +30,8 @@ from gpauto.authorization import (
 )
 from gpauto.bounds import (
     ActionClass,
-    AuthorityBounds,
+    AuthoritativeInputDesignation,
+    AuthorityCeilingMember,
     ReadBoundary,
     ToolCategory,
     WriteBoundary,
@@ -106,23 +107,39 @@ def stage_contract_content(**overrides: object) -> StageContractContent:
     return rebuilt(base, **overrides)
 
 
-def rich_bounds() -> AuthorityBounds:
-    """Writing bounds whose set-valued dimensions each hold more than one member."""
-    return rebuilt(
-        fixtures.writing_bounds(),
+def rich_ceiling() -> tuple[AuthorityCeilingMember, ...]:
+    """A two-member ceiling whose set-valued dimensions each hold more than one token.
+
+    **`RA-07`-invalid on purpose**: the writer's `E-16` carries `EGRESS` and `INSTALL`,
+    which S6G2-2(g) forbids in a member. Equivalence is validity-agnostic, and a
+    multi-token `E-16` is what exercises that dimension's set normalization; `RA-07`
+    validity is `GP-AUTO-ST-06`'s and no equivalence test asserts it.
+    """
+    writer = rebuilt(
+        fixtures.implementer_ceiling_member(),
         action_classes=(ActionClass(name="edit"), ActionClass(name="run-tests")),
         read_boundary=ReadBoundary(scopes=("src/", "tests/")),
         write_boundary=Carried[WriteBoundary](value=WriteBoundary(scopes=("src/", "tests/"))),
         tool_categories=(ToolCategory(name="file-edit"), ToolCategory(name="shell")),
         external_action_classes=(ExternalActionClass.EGRESS, ExternalActionClass.INSTALL),
     )
+    reviewer = rebuilt(
+        fixtures.reviewer_ceiling_member(),
+        action_classes=(ActionClass(name="read"), ActionClass(name="run-tests")),
+        tool_categories=(ToolCategory(name="file-read"), ToolCategory(name="shell")),
+        external_action_classes=(ExternalActionClass.BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA,),
+        authoritative_input_designation=Carried[AuthoritativeInputDesignation](
+            value=AuthoritativeInputDesignation(designated_scopes=("src/", "tests/"))
+        ),
+    )
+    return (writer, reviewer)
 
 
 def content(**overrides: object) -> AuthorityBearingContent:
     """An authority-bearing projection with multi-member sets, optionally overridden."""
     changes: dict[str, object] = {
         "authorized_roles": (Role.IMPLEMENTER, Role.DISCOVERY_REVIEWER),
-        "authority_ceiling": rich_bounds(),
+        "authority_ceiling": rich_ceiling(),
     }
     changes.update(overrides)
     return rebuilt(fixtures.authority_bearing_content(), **changes)
@@ -147,33 +164,69 @@ def fields_of(model: DomainModel) -> dict[str, object]:
     return {name: getattr(model, name) for name in type(model).model_fields}
 
 
-def permuted() -> AuthorizationRecord:
-    """The base record with every set-valued member list reversed and one repeated."""
-    base = content()
-    bounds = base.authority_ceiling
-    reversed_bounds = rebuilt(
-        bounds,
-        action_classes=(*reversed(bounds.action_classes), bounds.action_classes[0]),
-        read_boundary=ReadBoundary(scopes=tuple(reversed(bounds.read_boundary.scopes))),
-        write_boundary=Carried[WriteBoundary](
-            value=WriteBoundary(scopes=("tests/", "src/", "tests/"))
+def _reversed[T](items: tuple[T, ...]) -> tuple[T, ...]:
+    """`items` reversed, with its first item repeated at the end."""
+    return (*reversed(items), items[0])
+
+
+def permuted_member(member: AuthorityCeilingMember) -> AuthorityCeilingMember:
+    """`member` with every set-valued dimension reversed and one token repeated."""
+    write = member.write_boundary
+    designation = member.authoritative_input_designation
+    return rebuilt(
+        member,
+        action_classes=_reversed(member.action_classes),
+        read_boundary=ReadBoundary(scopes=_reversed(member.read_boundary.scopes)),
+        write_boundary=(
+            Carried[WriteBoundary](value=WriteBoundary(scopes=_reversed(write.value.scopes)))
+            if isinstance(write, Carried)
+            else NotApplicable()
         ),
-        tool_categories=tuple(reversed(bounds.tool_categories)),
-        external_action_classes=tuple(reversed(bounds.external_action_classes)),
+        tool_categories=_reversed(member.tool_categories),
+        external_action_classes=_reversed(member.external_action_classes),
+        authoritative_input_designation=(
+            Carried[AuthoritativeInputDesignation](
+                value=AuthoritativeInputDesignation(
+                    designated_scopes=_reversed(designation.value.designated_scopes)
+                )
+            )
+            if isinstance(designation, Carried)
+            else NotApplicable()
+        ),
     )
+
+
+def permuted() -> AuthorizationRecord:
+    """The base record with every set-valued list reversed and one member repeated.
+
+    The role set, the ceiling's **member order**, and every set-valued dimension inside
+    each member are reversed; one role, one member and one token per dimension are
+    repeated. The repeated member is identical to one already present, so the ceiling
+    denotes the same member set (SP6-17).
+    """
+    base = content()
+    members = tuple(permuted_member(member) for member in reversed(base.authority_ceiling))
     return record(
         content(
             authorized_roles=tuple(reversed(base.authorized_roles)) + (Role.IMPLEMENTER,),
-            authority_ceiling=reversed_bounds,
+            authority_ceiling=(*members, members[0]),
         ),
         record_token="another-record-token",
     )
 
 
+def ceiling_with_member(index: int, **changes: object) -> tuple[AuthorityCeilingMember, ...]:
+    """`rich_ceiling()` with one member's dimensions changed and every other member kept."""
+    ceiling = list(rich_ceiling())
+    ceiling[index] = rebuilt(ceiling[index], **changes)
+    return tuple(ceiling)
+
+
 def _ceiling_changed() -> AuthorityBearingContent:
+    """One of the ten dimensions of one member changed: the writer's Git capability."""
     return content(
-        authority_ceiling=rebuilt(
-            rich_bounds(), git_capability_class=GitCapabilityClass.BOUNDED_READ
+        authority_ceiling=ceiling_with_member(
+            0, git_capability_class=GitCapabilityClass.BOUNDED_READ
         )
     )
 

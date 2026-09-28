@@ -179,14 +179,33 @@ class WriteMode(StrEnum):
 class ExternalActionClass(StrEnum):
     """Bounds dimension: the external / network classes AP-03 §4.8 names (`E-16`).
 
-    Exactly the three AP-03 writes — egress, install, external mutation. A bounds
-    value naming one asserts that the class is **authorized**, never that anything is
-    prevented (AP-03 §12, `P-14`).
+    Exactly four members: the three AP-03 §4.8 names — egress, install, external
+    mutation — and `BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA` (AP-06 `XA-1`…`XA-9`,
+    correction `ST06PC-1`). A bounds value naming one asserts that the class is
+    **authorized**, never that anything is prevented (AP-03 §12, `P-14`).
+
+    The fourth names `XA-1`'s per-activation area, inside `E-10` and strictly outside
+    the governed repository boundary, toward which verification-execution side effects
+    may be directed. It is declarable, never ambient (`XA-2`): present in a ceiling
+    member only if the OWNER placed it in `RA-07` (`XA-3`, `AP06-I18`), and copied
+    into an envelope, never added. **It grants nothing by existing.** It is not
+    repository write authority (`XA-9`; `E-12` is unchanged), not network, install or
+    external mutation, and not uncontrolled external mutation — one bounded,
+    per-activation, never-shared area (`XA-4`). It is not a sandbox, confinement or
+    exemption (`XA-1`, `XA-6`, `XA-7`), so residual in-repository by-products stay
+    violations, and it widens none of `E-10`…`E-13`.
+
+    **Where the prohibition of the other three lives.** A ceiling member and
+    `AuthorityBounds` both admit all four values structurally; no validator refuses
+    one. A ceiling member carrying `EGRESS`, `INSTALL` or `EXTERNAL_MUTATION` is
+    `RA-07`-invalid, evaluated by `GP-AUTO-ST-06` (S6G2-2(g)); an envelope cannot carry
+    one, because derivation copies only a valid member and `C1` re-validates it.
     """
 
     EGRESS = "EGRESS"
     INSTALL = "INSTALL"
     EXTERNAL_MUTATION = "EXTERNAL_MUTATION"
+    BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA = "BOUNDED_NON_PROJECT_SIDE_EFFECT_AREA"
 
 
 class GitActionClass(StrEnum):

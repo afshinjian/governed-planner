@@ -19,21 +19,27 @@ also says exactly which bytes are under test.
 from __future__ import annotations
 
 import ast
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 import decode_gate
+import fixtures
 import st02_support
 from gate_scope import REPOSITORY_ROOT, configured_package_path
 from gpauto import codec
+from gpauto.absence import Carried, NotApplicable
+from gpauto.authorization import AuthorizationRecord
+from gpauto.bounds import AuthorityCeilingMember
 from gpauto.content_identity import (
     identify_artifact_content,
     identify_stage_contract,
     stage_contract_preimage,
 )
-from gpauto.identity import StageContractId
+from gpauto.identity import FrozenFindingSetId, StageContractId
 from gpauto.preimage import StageContractContent
+from gpauto.vocabulary import GitCapabilityClass, Role, WriteMode
 from gplanner.digest import digest_of_preimage_bytes
 
 GPAUTO_STAGE = "GP-AUTO-ST-02"
@@ -344,3 +350,134 @@ def test_the_artifact_payload_is_validated_before_any_byte_recovery() -> None:
         with pytest.raises(ValidationError) as caught:
             codec.decode_artifact_content(payload)
         assert [error["loc"] for error in caught.value.errors()] == [("content",)], loose
+
+
+# --- ST06PC-1: the role-indexed ceiling on the one decode path (SP6-V6(a), SP6-V16) ---
+
+
+def _two_member_record() -> AuthorizationRecord:
+    """IMPLEMENTER (writing, Git `NONE`) and DISCOVERY_REVIEWER (read-only, Git
+    `BOUNDED_READ`), each one `AuthorityCeilingMember` of a role-indexed ceiling."""
+    return AuthorizationRecord(
+        identity=fixtures.RECORD_ID,
+        authorization_identity=fixtures.AUTHORIZATION_ID,
+        content=st02_support.rebuilt(
+            fixtures.authority_bearing_content(),
+            authorized_roles=(Role.IMPLEMENTER, Role.DISCOVERY_REVIEWER),
+            authority_ceiling=(
+                fixtures.implementer_ceiling_member(),
+                fixtures.reviewer_ceiling_member(),
+            ),
+        ),
+    )
+
+
+def _with_ceiling(ceiling: str) -> str:
+    """The two-member record's JSON with its ceiling array replaced by `ceiling`."""
+    record = _two_member_record()
+    members = ",".join(member.model_dump_json() for member in record.content.authority_ceiling)
+    text = record.model_dump_json()
+    current = '"authority_ceiling":[' + members + "]"
+    assert text.count(current) == 1
+    return text.replace(current, '"authority_ceiling":' + ceiling)
+
+
+def _member_with(field: str) -> str:
+    """A ceiling array whose first member carries one more field, `field`."""
+    implementer, reviewer = _two_member_record().content.authority_ceiling
+    return "[" + implementer.model_dump_json()[:-1] + "," + field + "}," + (
+        reviewer.model_dump_json() + "]"
+    )
+
+
+@pytest.mark.traces("SP6-V6", "DC-1")
+def test_a_role_indexed_ceiling_round_trips_through_the_codec() -> None:
+    """SP6-V6(a): the committed codec is the only path exercised. A two-member ceiling
+    decodes as a tuple of `AuthorityCeilingMember` equal to the original, from `str` and
+    from bytes alike."""
+    record = _two_member_record()
+    text = record.model_dump_json()
+    assert text == _with_ceiling(
+        "[" + ",".join(m.model_dump_json() for m in record.content.authority_ceiling) + "]"
+    )
+    for payload in (text, text.encode("utf-8")):
+        decoded = codec.decode_authorization_record(payload)
+        assert decoded == record
+        ceiling = decoded.content.authority_ceiling
+        assert isinstance(ceiling, tuple) and len(ceiling) == 2
+        assert all(type(member) is AuthorityCeilingMember for member in ceiling)
+        assert [m.role_applicability for m in ceiling] == [
+            Role.IMPLEMENTER,
+            Role.DISCOVERY_REVIEWER,
+        ]
+        assert [m.write_mode for m in ceiling] == [WriteMode.WRITING, WriteMode.READ_ONLY]
+        assert [m.git_capability_class for m in ceiling] == [
+            GitCapabilityClass.NONE,
+            GitCapabilityClass.BOUNDED_READ,
+        ]
+
+
+@pytest.mark.traces("SP6-V6", "SP6-V16", "DC-3")
+def test_an_empty_ceiling_array_is_refused() -> None:
+    """`min_length=1`: an authorization with no ceiling member is not decoded."""
+    with pytest.raises(ValidationError) as caught:
+        codec.decode_authorization_record(_with_ceiling("[]"))
+    assert [error["type"] for error in caught.value.errors()] == ["too_short"]
+
+
+@pytest.mark.traces("SP6-V6", "SP6-V16", "DC-3")
+def test_a_pre_correction_single_object_ceiling_is_refused() -> None:
+    """The v3 shape — one `AuthorityBounds` object, `E-14` and all — is not a ceiling."""
+    with pytest.raises(ValidationError) as caught:
+        codec.decode_authorization_record(
+            _with_ceiling(fixtures.writing_bounds().model_dump_json())
+        )
+    assert [error["type"] for error in caught.value.errors()] == ["tuple_type"]
+
+
+@pytest.mark.traces("SP6-V3", "SP6-V6", "SP6-V16", "DC-3")
+def test_a_ceiling_member_carrying_frozen_set_reference_is_refused() -> None:
+    """`E-14` is inexpressible in a member, `Carried` and `NotApplicable` alike (SP6-3)."""
+    for reference in (
+        NotApplicable().model_dump_json(),
+        Carried[FrozenFindingSetId](value=fixtures.FROZEN_SET_ID).model_dump_json(),
+    ):
+        with pytest.raises(ValidationError) as caught:
+            codec.decode_authorization_record(
+                _with_ceiling(_member_with('"frozen_set_reference":' + reference))
+            )
+        assert [(error["type"], error["loc"][-1]) for error in caught.value.errors()] == [
+            ("extra_forbidden", "frozen_set_reference")
+        ], reference
+
+
+@pytest.mark.traces("SP6-V6", "SP6-V16", "DC-3")
+def test_a_ceiling_member_with_an_undeclared_field_is_refused() -> None:
+    """A member is closed like every other domain value: unenumerated content is refused,
+    never dropped (AP-03 §4.3 rule 1)."""
+    with pytest.raises(ValidationError) as caught:
+        codec.decode_authorization_record(_with_ceiling(_member_with('"rationale":"prose"')))
+    assert [error["type"] for error in caught.value.errors()] == ["extra_forbidden"]
+
+
+@pytest.mark.traces("SP6-V6", "DC-1", "DC-2")
+def test_the_ceiling_is_decoded_by_the_unchanged_codec_alone() -> None:
+    """SP6-V6(a): decode is `model_validate_json` only, and the codec still has exactly its
+    three decoders — the ceiling correction added none."""
+    tree = ast.parse(Path(codec.__file__ or "").read_text(encoding="utf-8"))
+    decoders = sorted(
+        node.name
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("decode_")
+    )
+    assert decoders == [
+        "decode_artifact_content",
+        "decode_authorization_record",
+        "decode_stage_contract",
+    ]
+    validations = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr.startswith("model_validate")
+    ]
+    assert [node.attr for node in validations] == ["model_validate_json"] * 3

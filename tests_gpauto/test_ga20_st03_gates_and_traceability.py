@@ -17,7 +17,9 @@ owed by ST-17, never `N/A`.
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
+import re
 from pathlib import Path
 
 import pytest
@@ -83,7 +85,7 @@ FORBIDDEN_OPERATION_WORDS = (
 
 
 @pytest.mark.traces("ST03-G1")
-@pytest.mark.traces("SC03-V14")
+@pytest.mark.traces("SC03-V14", "SP6-V14")
 def test_ruff_inspects_every_st03_module_and_passes() -> None:
     """`ruff` over the configured GP-AUTO scope lists every ST-03 file and finds nothing."""
     import subprocess
@@ -108,7 +110,7 @@ def test_ruff_inspects_every_st03_module_and_passes() -> None:
 
 
 @pytest.mark.traces("ST03-G1")
-@pytest.mark.traces("SC03-V14")
+@pytest.mark.traces("SC03-V14", "SP6-V14")
 def test_mypy_strict_type_checks_every_st03_module(tmp_path: Path) -> None:
     """`mypy --strict` actually type-checks each ST-03 module, and passes."""
     report_dir = tmp_path / "report"
@@ -125,7 +127,7 @@ def test_mypy_strict_type_checks_every_st03_module(tmp_path: Path) -> None:
 
 
 @pytest.mark.traces("ST03-G1")
-@pytest.mark.traces("SC03-V14")
+@pytest.mark.traces("SC03-V14", "SP6-V14")
 def test_the_decode_gate_inspects_every_st03_module_and_finds_nothing() -> None:
     """`DC-1`, `DC-2`: the store decodes JSON only through the ST-02 codec — its only JSON
     record, `RC-12`, is read by `codec.decode_authorization_record` — and no ST-03 module
@@ -261,13 +263,14 @@ def test_every_st03_contract_and_frozen_row_carries_discharging_evidence() -> No
     assert "AP11-I72" not in rows
 
 
-@pytest.mark.traces("SC03-V14", "ST03-A1")
+@pytest.mark.traces("SC03-V14", "ST03-A1", "SP6-V14")
 def test_correction_sources_prerequisites_and_traceability_are_pinned() -> None:
     """Accepted identities remain untouched; correction rows come from those sources."""
     elements = traceability.correction_elements()
     assert set(elements) == {
         *(f"SC01-V{n}" for n in range(1, 18)),
         *(f"SC03-V{n}" for n in range(1, 15)),
+        *(f"SP6-V{n}" for n in range(1, 18)),
     }
     evidence = traceability.declared_evidence()
     assert set(elements) <= set(evidence)
@@ -309,3 +312,139 @@ def test_correction_sources_prerequisites_and_traceability_are_pinned() -> None:
             size,
             digest,
         )
+
+
+# --- ST06PC-1 `SP6-V14`: discharged only by the complete executed regression ---------------
+
+GPSPK_NODE = "tests_gpauto/test_ga20_st03_gates_and_traceability.py::test_the_gpspk_suite_passes"
+GIT_DIFF_CHECK_NODE = (
+    "tests_gpauto/test_ga20_st03_gates_and_traceability.py::test_git_diff_check_passes"
+)
+ST03_GATE_NODES = tuple(
+    f"tests_gpauto/test_ga20_st03_gates_and_traceability.py::{name}"
+    for name in (
+        "test_ruff_inspects_every_st03_module_and_passes",
+        "test_mypy_strict_type_checks_every_st03_module",
+        "test_the_decode_gate_inspects_every_st03_module_and_finds_nothing",
+        "test_correction_sources_prerequisites_and_traceability_are_pinned",
+    )
+)
+TRACEABILITY_CONSISTENCY_NODE = (
+    "tests_gpauto/test_ga08_traceability.py::test_the_generator_reports_a_self_consistent_matrix"
+)
+
+
+@pytest.mark.traces("SP6-V14")
+def test_the_gpspk_suite_passes() -> None:
+    """`SP6-V14`: the GP-SPK suite runs in full and passes, all 707 tests, as an executed
+    GP-AUTO node. It runs as a subprocess and imports no spike module."""
+    import subprocess
+    import sys
+
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests"],
+        capture_output=True,
+        text=True,
+        cwd=REPOSITORY_ROOT,
+    )
+    assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-4000:]
+    summary = result.stdout.strip().splitlines()[-1]
+    assert re.fullmatch(r"=* ?707 passed in [0-9.]+s( \([0-9:]+\))? ?=*", summary), summary
+
+
+@pytest.mark.traces("SP6-V14")
+def test_git_diff_check_passes() -> None:
+    """`SP6-V14`: `git diff --check` finds no whitespace error in the working tree."""
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "diff", "--check"], capture_output=True, text=True, cwd=REPOSITORY_ROOT
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _sp6_v14(results: dict[str, bool] | None) -> traceability.Row:
+    return {row.element: row for row in traceability.matrix(results)}["SP6-V14"]
+
+
+def _junit(tmp_path: Path, outcomes: dict[str, str]) -> Path:
+    """A JUnit report with one `testcase` per node id: `passed`, `failure` or `skipped`."""
+    cases = []
+    for node_id, outcome in outcomes.items():
+        module, name = node_id.split("::")
+        classname = module.removesuffix(".py").replace("/", ".")
+        body = "" if outcome == "passed" else f"<{outcome}/>"
+        cases.append(f'<testcase classname="{classname}" name="{name}">{body}</testcase>')
+    report = tmp_path / "junit.xml"
+    report.write_text("<testsuite>" + "".join(cases) + "</testsuite>", encoding="utf-8")
+    return report
+
+
+@pytest.mark.traces("SP6-V14")
+def test_sp6_v14_is_discharged_only_by_the_complete_executed_regression(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`SP6-V14`, `TR11-9`: the four ST-03 gate tests alone never discharge it. Its evidence
+    is the whole GP-AUTO corpus — ST-04/ST-05 regression and mutation, the correction's
+    mutation and gate tests, ruff, mypy, the decode gate, traceability consistency, and
+    the executed GP-SPK and `git diff --check` nodes — so a partial, failing or skipped
+    run leaves it undischarged. The untraced-test gate still reads the raw markers."""
+    # The corpus does not change during the test, so its pure readers are memoized here.
+    for reader in ("declared_evidence", "declared_support", "module_stage", "inventory"):
+        monkeypatch.setattr(traceability, reader, functools.cache(getattr(traceability, reader)))
+    corpus = traceability.corpus_tests()
+    designated = set(traceability.declared_evidence()["SP6-V14"])
+    required_groups = {
+        "GP-SPK": [GPSPK_NODE],
+        "git diff --check": [GIT_DIFF_CHECK_NODE],
+        "traceability": [TRACEABILITY_CONSISTENCY_NODE],
+        **{gate.split("::")[1]: [gate] for gate in ST03_GATE_NODES},
+        **{
+            module: [node for node in corpus if node.startswith(f"tests_gpauto/{module}_")]
+            for module in (
+                "test_ga11", "test_ga13", "test_ga19",  # correction mutation and gates
+                "test_ga21", "test_ga22", "test_ga23", "test_ga24",  # ST-04, mutation ga23
+                "test_ga25", "test_ga26", "test_ga27", "test_ga28",  # ST-05, mutation ga27
+            )
+        },
+    }  # fmt: skip
+    assert set(corpus) <= designated
+    for group, nodes in required_groups.items():
+        assert nodes, group
+        assert set(nodes) <= set(corpus), group
+
+    everything = dict.fromkeys(corpus, True)
+    assert _sp6_v14(None).disposition == UNDISCHARGED
+    assert _sp6_v14(dict.fromkeys(ST03_GATE_NODES, True)).disposition == UNDISCHARGED
+    assert _sp6_v14(everything).disposition == DISCHARGED
+    for group, nodes in required_groups.items():
+        missing = {n: v for n, v in everything.items() if n not in nodes}
+        assert _sp6_v14(missing).disposition == UNDISCHARGED, group
+        failed = {**everything, **dict.fromkeys(nodes, False)}
+        assert _sp6_v14(failed).disposition == UNDISCHARGED, group
+
+    passed = dict.fromkeys(corpus, "passed")
+    report = traceability.executed_results(_junit(tmp_path, passed))
+    assert _sp6_v14(report).disposition == DISCHARGED
+    for outcome in ("skipped", "failure"):
+        report = traceability.executed_results(
+            _junit(tmp_path, {**passed, corpus[0]: outcome, GPSPK_NODE: outcome})
+        )
+        assert _sp6_v14(report).disposition == UNDISCHARGED, outcome
+    partial = {n: o for n, o in passed.items() if "test_ga20_" in n}
+    report = traceability.executed_results(_junit(tmp_path, partial))
+    assert _sp6_v14(report).disposition == UNDISCHARGED
+
+    # The widening is evidence only: an unmarked test is still reported untraced.
+    victim = "tests_gpauto/test_ga04_entities.py::" + next(
+        n.split("::")[1] for n in corpus if n.startswith("tests_gpauto/test_ga04_")
+    )
+    monkeypatch.undo()
+    raw = traceability._declared
+
+    def without_victim(marker: str) -> dict[str, list[str]]:
+        return {k: [n for n in v if n != victim] for k, v in raw(marker).items()}
+
+    monkeypatch.setattr(traceability, "_declared", without_victim)
+    assert traceability.untraced_tests() == [victim]
+    assert victim in traceability.declared_evidence()["SP6-V14"]

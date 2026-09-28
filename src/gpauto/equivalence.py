@@ -29,7 +29,8 @@ That sentence is the whole design, and each clause is realized separately:
   **set**: duplicates collapse and members take a canonical order derived from each
   member's own canonical bytes. Ordering members *inside one value* is not consulting
   arrival, insertion or storage order, and no record order is read anywhere
-  (`PA-04`, `AP04-I08`). A ceiling normalizes dimension-wise, a label as presence.
+  (`PA-04`, `AP04-I08`). A ceiling is a set of members, each normalized
+  dimension-wise; a label normalizes as presence.
 * **Serialized under JCS, compared as bytes** (`EQ-4`). Reflexivity, symmetry and
   transitivity then hold *by construction*: they are properties of byte equality of a
   deterministic normal form, so *"all visible records of this identity agree"* cannot
@@ -88,7 +89,7 @@ from pydantic import ValidationError
 from gpauto.authorization import AuthorityBearingContent, AuthorizationRecord
 from gpauto.bounds import (
     AuthoritativeInputDesignation,
-    AuthorityBounds,
+    AuthorityCeilingMember,
     ReadBoundary,
     WriteBoundary,
 )
@@ -145,9 +146,10 @@ it explicitly in a frozen phase, never at run time.
 SET_VALUED_FIELDS: Final[frozenset[tuple[type[DomainModel], str]]] = frozenset(
     {
         (AuthorityBearingContent, "authorized_roles"),
-        (AuthorityBounds, "action_classes"),
-        (AuthorityBounds, "tool_categories"),
-        (AuthorityBounds, "external_action_classes"),
+        (AuthorityBearingContent, "authority_ceiling"),
+        (AuthorityCeilingMember, "action_classes"),
+        (AuthorityCeilingMember, "tool_categories"),
+        (AuthorityCeilingMember, "external_action_classes"),
         (ReadBoundary, "scopes"),
         (WriteBoundary, "scopes"),
         (AuthoritativeInputDesignation, "designated_scopes"),
@@ -155,8 +157,9 @@ SET_VALUED_FIELDS: Final[frozenset[tuple[type[DomainModel], str]]] = frozenset(
 )
 """Every tuple in the projection, each denoting a **set** (`EQ-3`).
 
-A role set is a set; a ceiling's class, category and scope dimensions are bounds, and
-a bound is the set it admits. A tuple field **not** listed here is not guessed to be
+A role set is a set. A ceiling is a set of members (`RA-07`, role-indexed), each
+normalized dimension-wise; a member's class, category and scope dimensions are bounds,
+and a bound is the set it admits. A tuple field **not** listed here is not guessed to be
 either a set or a sequence: meeting one makes the comparison indeterminate.
 """
 

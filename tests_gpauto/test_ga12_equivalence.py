@@ -34,7 +34,17 @@ import pytest
 import fixtures
 import st02_support
 from gpauto import equivalence
+from gpauto.absence import Carried, NotApplicable
 from gpauto.authorization import AuthorityBearingContent, AuthorizationRecord
+from gpauto.bounds import (
+    ActionClass,
+    AuthoritativeInputDesignation,
+    AuthorityCeilingMember,
+    ReadBoundary,
+    ScopeFrameBounds,
+    ToolCategory,
+    WriteBoundary,
+)
 from gpauto.equivalence import (
     PROJECTION,
     SET_VALUED_FIELDS,
@@ -43,7 +53,13 @@ from gpauto.equivalence import (
 )
 from gpauto.identity import OwnerAuthorizationId, ProjectId
 from gpauto.schema import DomainModel
-from gpauto.vocabulary import AuthorityBearingContentClass
+from gpauto.vocabulary import (
+    AuthorityBearingContentClass,
+    ExternalActionClass,
+    GitCapabilityClass,
+    Role,
+    WriteMode,
+)
 from introspect import reachable_models
 
 GPAUTO_STAGE = "GP-AUTO-ST-02"
@@ -327,7 +343,10 @@ def _tuple_fields(root: type[DomainModel]) -> Iterator[tuple[type[DomainModel], 
 
     for cls in reachable_models(root):
         for name, info in cls.model_fields.items():
-            if typing.get_origin(info.annotation) is tuple:
+            annotation = info.annotation
+            if isinstance(annotation, typing.TypeAliasType):
+                annotation = annotation.__value__
+            if typing.get_origin(annotation) is tuple:
                 yield cls, name
 
 
@@ -485,3 +504,168 @@ def test_narrowing_indeterminacy_left_the_relation_intact() -> None:
     )
     with pytest.raises(CrossIdentityComparison):
         equivalence.compare_records(base, foreign)
+
+
+# --- ST06PC-1: a ceiling is a set of members (SP6-V7, SP6-V8) ----------------------------
+
+
+def _with_ceiling(ceiling: tuple[AuthorityCeilingMember, ...]) -> AuthorizationRecord:
+    return st02_support.record(
+        st02_support.content(authority_ceiling=ceiling), record_token="ceiling-variant"
+    )
+
+
+def _compared_both_ways(first: AuthorizationRecord, second: AuthorizationRecord) -> set[str]:
+    return {
+        equivalence.compare_records(first, second),
+        equivalence.compare_records(second, first),
+    }
+
+
+@pytest.mark.traces("SP6-V7", "EQ-3")
+def test_st06pc1_repeating_or_permuting_members_is_equivalent() -> None:
+    """SP6-V7 (1), (2): a member repeated, the member order reversed, and the tokens
+    inside each member's set dimensions permuted and repeated all denote the same ceiling.
+
+    Duplicate collapse here is normalization behaviour only (SP6-17). It asserts nothing
+    about `RA-07` validity: a ceiling repeating a member or a role is invalid, and that is
+    decided by `GP-AUTO-ST-06` (S6G2-2(a)), never by equivalence.
+    """
+    base = st02_support.record()
+    rich = st02_support.rich_ceiling()
+    for ceiling in (
+        (*rich, rich[0]),
+        (*rich, rich[1], rich[0]),
+        tuple(reversed(rich)),
+        tuple(st02_support.permuted_member(member) for member in rich),
+        tuple(st02_support.permuted_member(member) for member in reversed(rich)) + (rich[1],),
+    ):
+        assert _compared_both_ways(base, _with_ceiling(ceiling)) == {EQUIVALENT}, ceiling
+
+
+@pytest.mark.traces("SP6-V7", "EQ-3")
+def test_st06pc1_adding_or_removing_a_distinct_member_is_not_equivalent() -> None:
+    """SP6-V7 (3): only a member that is **distinct after normalization** changes the set."""
+    base = st02_support.record()
+    writer, reviewer = st02_support.rich_ceiling()
+    distinct = st02_support.rebuilt(writer, role_applicability=Role.REMEDIATOR)
+    for ceiling in ((writer,), (reviewer,), (writer, reviewer, distinct), (distinct, reviewer)):
+        assert _compared_both_ways(base, _with_ceiling(ceiling)) == {NOT_EQUIVALENT}, ceiling
+
+
+MEMBER_DIMENSION_CHANGES: dict[str, object] = {
+    "role_applicability": Role.REMEDIATOR,
+    "action_classes": (ActionClass(name="edit"),),
+    "read_boundary": ReadBoundary(scopes=("src/",)),
+    "write_mode": WriteMode.READ_ONLY,
+    "write_boundary": NotApplicable(),
+    "tool_categories": (ToolCategory(name="file-edit"),),
+    "external_action_classes": (ExternalActionClass.EGRESS,),
+    "git_capability_class": GitCapabilityClass.BOUNDED_READ,
+    "scope_frame": ScopeFrameBounds(
+        project=ProjectId(value="other-project"),
+        stage=fixtures.STAGE_ID,
+        repository_boundary=fixtures.REPOSITORY_ID,
+        baseline=fixtures.BASELINE_ID,
+    ),
+    "authoritative_input_designation": Carried[AuthoritativeInputDesignation](
+        value=AuthoritativeInputDesignation(designated_scopes=("src/",))
+    ),
+}
+"""One change per conveyed dimension of the writer member, each alone."""
+
+
+@pytest.mark.traces("SP6-V7", "EQ-0", "EQ-3")
+@pytest.mark.parametrize("dimension", sorted(MEMBER_DIMENSION_CHANGES), ids=str)
+def test_st06pc1_changing_one_dimension_of_one_member_is_not_equivalent(dimension: str) -> None:
+    """SP6-V7 (4): each of the ten dimensions of one member, changed alone, changes the
+    answer — and the change table covers the member's fields exactly."""
+    assert set(MEMBER_DIMENSION_CHANGES) == set(AuthorityCeilingMember.model_fields)
+    changed = st02_support.ceiling_with_member(
+        0, **{dimension: MEMBER_DIMENSION_CHANGES[dimension]}
+    )
+    assert changed != st02_support.rich_ceiling()
+    assert _compared_both_ways(st02_support.record(), _with_ceiling(changed)) == {
+        NOT_EQUIVALENT
+    }
+
+
+@pytest.mark.traces("SP6-V7", "ID-6", "EQ-3")
+def test_st06pc1_member_tokens_are_compared_exactly() -> None:
+    """SP6-V7, SP6-16: tokens differing only in case, a trailing slash or Unicode form are
+    different tokens. No case folding, trimming, path or Unicode normalization applies."""
+    tokens: dict[str, object] = {
+        "action_classes": (ActionClass(name="edit"),),
+        "read_boundary": ReadBoundary(scopes=("src/",)),
+        "tool_categories": (ToolCategory(name=st02_support.E_ACUTE_COMPOSED),),
+    }
+    base = st02_support.record(_content_with_writer(**tokens))
+    for changes in (
+        {"action_classes": (ActionClass(name="EDIT"),)},
+        {"read_boundary": ReadBoundary(scopes=("src",))},
+        {"tool_categories": (ToolCategory(name=st02_support.E_ACUTE_DECOMPOSED),)},
+    ):
+        variant = st02_support.record(
+            _content_with_writer(**{**tokens, **changes}), record_token="token-variant"
+        )
+        assert _compared_both_ways(base, variant) == {NOT_EQUIVALENT}, changes
+
+
+def _content_with_writer(**changes: object) -> AuthorityBearingContent:
+    return st02_support.content(authority_ceiling=st02_support.ceiling_with_member(0, **changes))
+
+
+@pytest.mark.traces("SP6-V7", "EQ-2", "EQ-3")
+def test_st06pc1_set_valued_fields_are_exactly_the_eight_entries() -> None:
+    """SP6-14: the three `AuthorityBounds` entries are replaced, not supplemented, and the
+    ceiling itself is a set. The projection's tuple fields are exactly this set, and the
+    `AUTHORITY_CEILING` variant differs in that class alone and is not equivalent."""
+    assert frozenset(
+        {
+            (AuthorityBearingContent, "authorized_roles"),
+            (AuthorityBearingContent, "authority_ceiling"),
+            (AuthorityCeilingMember, "action_classes"),
+            (AuthorityCeilingMember, "tool_categories"),
+            (AuthorityCeilingMember, "external_action_classes"),
+            (ReadBoundary, "scopes"),
+            (WriteBoundary, "scopes"),
+            (AuthoritativeInputDesignation, "designated_scopes"),
+        }
+    ) == SET_VALUED_FIELDS
+    assert set(_tuple_fields(AuthorityBearingContent)) == set(SET_VALUED_FIELDS)
+    base = st02_support.record()
+    variant = st02_support.record(
+        st02_support.DIFFERING_IN_ONE_CLASS[AuthorityBearingContentClass.AUTHORITY_CEILING](),
+        record_token="variant",
+    )
+    differing = [
+        field
+        for field in AuthorityBearingContent.model_fields
+        if getattr(base.content, field) != getattr(variant.content, field)
+    ]
+    assert differing == ["authority_ceiling"]
+    assert _compared_both_ways(base, variant) == {NOT_EQUIVALENT}
+
+
+@pytest.mark.supports("EQ-6")
+@pytest.mark.traces("SP6-V8", "EQ-3")
+@pytest.mark.parametrize(
+    "entry",
+    [
+        (AuthorityBearingContent, "authority_ceiling"),
+        (AuthorityCeilingMember, "action_classes"),
+        (AuthorityCeilingMember, "tool_categories"),
+        (AuthorityCeilingMember, "external_action_classes"),
+    ],
+    ids=lambda entry: f"{entry[0].__name__}.{entry[1]}",
+)
+def test_st06pc1_a_ceiling_tuple_not_known_to_be_a_set_is_indeterminate(
+    entry: tuple[type[DomainModel], str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SP6-V8: with the ceiling entry, or any one member entry, removed from
+    `SET_VALUED_FIELDS`, the comparison is indeterminate — never guessed."""
+    assert entry in SET_VALUED_FIELDS
+    reduced = frozenset(known for known in SET_VALUED_FIELDS if known != entry)
+    monkeypatch.setattr(equivalence, "SET_VALUED_FIELDS", reduced)
+    base = st02_support.record()
+    assert equivalence.compare_records(base, base) is INDETERMINATE

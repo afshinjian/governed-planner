@@ -70,7 +70,11 @@ checks and matrix generator (AP-11 §16 ST-05, *Authorized scope*). Its model da
 functions are pinned in `test_ga28`."""
 
 NEVER_AN_ENTITY = {
-    "AuthorityCeiling": "merged into the AuthorityBounds value carried by RA-07 (AP-03 §2.2)",
+    "AuthorityCeiling": (
+        "an identity-less value inside the authorization: RA-07 is a role-indexed tuple of "
+        "AuthorityCeilingMember values, not an AuthorityBounds (AP-03 §2.2; ST-06 "
+        "clarification S6G2-1, S6G2-2)"
+    ),
     "DecisionPackage": "demoted to a derivation with no identity (AP-03 §2.5, AP03-I31)",
     "InvalidAuthorizationCandidate": "merged into CandidateExclusion (AP-03 §2.7)",
     "EntryStateDivergence": "merged into UnaccountedMutation (AP-03 §2.7)",
