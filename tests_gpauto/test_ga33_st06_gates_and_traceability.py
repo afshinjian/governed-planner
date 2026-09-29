@@ -420,16 +420,26 @@ def test_every_st06_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
 @pytest.mark.traces("ST06-A1")
 def test_nothing_owed_to_another_stage_is_discharged_or_reassigned_here() -> None:
     """`EV11-6`: every row owed at ST-05's acceptance to a stage other than ST-06 is still
-    undischarged and owed by that same stage; no ST-06 test declares discharging evidence
-    for it; and ST-06 is the last stage run."""
+    undischarged and owed by that same stage — or, once that stage has run, discharged by
+    exactly it; no ST-06 test declares discharging evidence for it; and ST-06 has run. The
+    set owed at ST-06's acceptance is the historical `OWED_AT_ST06_ACCEPTANCE` record, and
+    is checked the same way (the ST-05 → `test_ga24` precedent)."""
     rows = _rows()
     evidence = traceability.declared_evidence()
-    for element, stage in traceability.OWED_AT_ST05_ACCEPTANCE.items():
-        if stage == GPAUTO_STAGE:
-            continue
-        assert rows[element].disposition == UNDISCHARGED, element
-        assert OWED_BY[element][0] == stage, element
-        assert not [n for n in evidence.get(element, []) if "st06" in n], element
-    assert traceability.STAGES_RUN[-1] == GPAUTO_STAGE
+    for owed_then in (
+        traceability.OWED_AT_ST05_ACCEPTANCE,
+        traceability.OWED_AT_ST06_ACCEPTANCE,
+    ):
+        for element, stage in owed_then.items():
+            if stage == GPAUTO_STAGE:
+                continue
+            assert not [n for n in evidence.get(element, []) if "st06" in n], element
+            if stage in traceability.STAGES_RUN:
+                assert rows[element].disposition == DISCHARGED, element
+                assert rows[element].implementing == stage, element
+            else:
+                assert rows[element].disposition == UNDISCHARGED, element
+                assert OWED_BY[element][0] == stage, element
+    assert GPAUTO_STAGE in traceability.STAGES_RUN
     assert traceability.unknown_elements() == []
     assert traceability.untraced_tests() == []

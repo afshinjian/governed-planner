@@ -87,6 +87,30 @@ clarification §18 names — each a **line** guard in `src/gpauto/authority.py`:
 Every other predicate and every keyed access in the module is inventoried, with the reason
 it carries no mutant, in `ST06_UNMUTATED_PREDICATES` and `ST06_UNQUALIFIED_KEYED_ACCESSES`.
 
+**From `GP-AUTO-ST-07`, four more guards** — AP-11 §16's ST-07 Mutation cell (*"each coherence
+condition; each defeat test; the once-per-root constraint; the non-mutating-mode guard"*),
+which `MU11-4`'s mandatory set names as *"observation coherence conditions and defeat
+tests"* — each a **line** guard in `src/gpauto/observation.py`:
+
+* `ga_observation_read_only` — the no-follow classification, the read-only no-follow open,
+  no link, `.` or `..` followed at any intermediate path component, a non-regular item never
+  opened as content, and every mode the reader does not take: a required index extension, a
+  gitlink entry, a nested repository, a configuration include, an unknown format version or
+  extension, a bare flag, a separate work tree; guarantees `GR9-4`, `GR9-5`, `OB9-8`.
+* `ga_observation_coherence` — condition (i): the index checksum and structure, full object
+  identities and the ref each subject is read from; condition (ii): no live M3 subject;
+  condition (iii): any defeat preventing a determination; the working tree walked whole and
+  nothing under `.git` walked as content; and the bound-referent match of
+  `ST07-OWNER-DECISION-01`; guarantees `OB9-9`, `OB9-9a`, `OB9-11`, `OB9-13`.
+* `ga_observation_defeat` — each defeat test on its own line, and witness equality never
+  overriding one; guarantees `OB9-9b`, `OB9-9`.
+* `ga_entry_once_per_root` — the key read first, the replay returned, `S1` only, an
+  unreadable boundary never taken for an absent one, and the boundary with its `S2` entry as
+  one unit; guarantees `AP03-I08`, `RS7-1`, `RS7-4`, `OB9-7`, `OB9-14`.
+
+Every other predicate and keyed access in `observation.py` is inventoried, with its reason, in
+`ST07_UNMUTATED_PREDICATES` and `ST07_KEYED_ACCESSES`.
+
 **No harness is installed** (`PG11-2` is undischarged, and a tool install would be a
 halt). This module is test code that performs exactly the two kinds of mutation the
 obligation needs, and nothing more:
@@ -145,6 +169,7 @@ from gpauto import (
     codec,
     derivations,
     equivalence,
+    observation,
     state_machine,
     state_machine_model,
     store,
@@ -283,6 +308,30 @@ GUARDS: Final[dict[str, Guard]] = {
         module=authority,
         kind="line",
         guarantees=("EV-1", "EV-2", "AP03-I15", "ST06C-I02"),
+    ),
+    "ga_observation_read_only": Guard(
+        identifier="ga_observation_read_only",
+        module=observation,
+        kind="line",
+        guarantees=("GR9-4", "GR9-5", "OB9-8"),
+    ),
+    "ga_observation_coherence": Guard(
+        identifier="ga_observation_coherence",
+        module=observation,
+        kind="line",
+        guarantees=("OB9-9", "OB9-9a", "OB9-11", "OB9-13"),
+    ),
+    "ga_observation_defeat": Guard(
+        identifier="ga_observation_defeat",
+        module=observation,
+        kind="line",
+        guarantees=("OB9-9b", "OB9-9"),
+    ),
+    "ga_entry_once_per_root": Guard(
+        identifier="ga_entry_once_per_root",
+        module=observation,
+        kind="line",
+        guarantees=("AP03-I08", "RS7-1", "RS7-4", "OB9-7", "OB9-14"),
     ),
 }
 
@@ -2238,6 +2287,507 @@ several are comprehension filters on tagged lines (`RW-16`, `BC-02`, `BC-03`, `B
 subscript here selects a record: each is a type parameter, a write, a comparison operand,
 or the single lawful value left after a count check (the `ST04-IMPL-R02` lesson)."""
 
+ST07_SUBJECTS = "tests_gpauto/test_ga34_st07_subjects.py"
+ST07_COHERENCE = "tests_gpauto/test_ga35_st07_coherence_and_defeat.py"
+ST07_BOUNDARY = "tests_gpauto/test_ga36_st07_entry_boundary.py"
+ST07_GATES = "tests_gpauto/test_ga38_st07_gates_and_traceability.py"
+_S, _C, _B, _G = ST07_SUBJECTS, ST07_COHERENCE, ST07_BOUNDARY, ST07_GATES
+_OPENS = f"{_G}::test_every_open_during_observation_is_read_only"
+_LINK = f"{_S}::test_symlink_is_recorded_as_a_link_never_followed"
+_INTERMEDIATE = f"{_S}::test_an_intermediate_link_in_a_ref_path_is_never_followed"
+_DOT_DOT = f"{_S}::test_a_location_with_a_dot_dot_or_linked_component_is_indeterminate"
+_FIFO = f"{_C}::test_a_fifo_in_the_tree_makes_the_observation_indeterminate_without_blocking"
+_MODES = f"{_C}::test_each_unsupported_repository_mode_is_indeterminate"
+_SPLIT = f"{_C}::test_split_or_sparse_index_is_indeterminate"
+_NESTED = f"{_C}::test_a_nested_repository_or_gitlink_is_indeterminate"
+_CHECKSUM = f"{_C}::test_a_corrupted_index_checksum_is_indeterminate"
+_STRUCTURE = f"{_C}::test_a_structurally_inconsistent_index_is_indeterminate"
+_OBJECT_ID = f"{_C}::test_a_ref_that_is_not_a_full_object_id_is_indeterminate"
+_PACKED = f"{_S}::test_a_packed_ref_is_read_as_its_own_branch_and_no_other"
+_EXCLUSIVE = f"{_C}::test_a_live_m3_subject_or_non_s1_position_refuses_before_reading"
+_ANY_DEFEAT = f"{_C}::test_any_defeat_indication_prevents_a_determination"
+_WHOLE_TREE = f"{_S}::test_the_working_tree_is_every_item_by_content_and_mode"
+_COMMIT = f"{_C}::test_an_observed_commit_differing_from_the_bound_baseline_fixes_nothing"
+_BRANCH = f"{_C}::test_an_observed_branch_differing_from_the_bound_branch_fixes_nothing"
+_UNBOUND = f"{_C}::test_a_matching_unbound_baseline_record_does_not_make_the_observation_fixable"
+_TORN = f"{_C}::test_a_torn_read_is_indeterminate"
+_TWO_READS = f"{_C}::test_a_subject_differing_between_the_two_reads_is_indeterminate"
+_WITNESS = f"{_C}::test_a_witness_differing_across_the_window_is_indeterminate"
+_APPEARS = f"{_C}::test_an_item_appearing_mid_walk_is_indeterminate"
+_DISAPPEARS = f"{_C}::test_an_item_disappearing_mid_walk_is_indeterminate"
+_CHANGES = f"{_C}::test_an_item_changing_mid_walk_is_indeterminate"
+_UNREADABLE_ITEM = f"{_C}::test_an_unreadable_subject_is_indeterminate"
+_SOCKET = f"{_C}::test_a_socket_in_the_tree_is_a_forbidden_mode_defeat"
+_MATCHING = f"{_C}::test_matching_witnesses_do_not_override_a_mid_walk_change"
+_SECOND_CALL = f"{_B}::test_a_second_call_reads_nothing_and_returns_the_recorded_boundary"
+_ONLY_S1 = f"{_B}::test_b2_is_refused_from_any_position_but_s1"
+_ONE_UNIT = f"{_B}::test_boundary_and_s2_entry_are_one_unit"
+_FACTS = f"{_B}::test_boundary_facts_supply_v14_and_rp4_from_records_alone"
+_RO = "ga_observation_read_only"
+_CO = "ga_observation_coherence"
+_DF = "ga_observation_defeat"
+_ON = "ga_entry_once_per_root"
+
+ST07_MUTANTS: Final[tuple[LineMutant, ...]] = (
+    LineMutant(
+        _RO, "RO-1-opened-read-write", "the read-only open becomes a read-write open",
+        "os.O_RDONLY", "os.O_RDWR", _OPENS,
+    ),
+    LineMutant(
+        _RO, "RO-1b-no-follow-dropped", "the open follows a link",
+        "| os.O_NOFOLLOW", "| 0", _OPENS,
+    ),
+    LineMutant(
+        _RO, "RO-2-link-followed", "items are classified through their links",
+        "os.lstat(name, dir_fd=directory)", "os.stat(name, dir_fd=directory)", _LINK,
+    ),
+    LineMutant(
+        _RO, "RO-2b-intermediate-link-taken-as-absent",
+        "an intermediate link is read past as an absent item, so the packed ref answers",
+        "if stat.S_ISLNK(info.st_mode):", "if False:", _INTERMEDIATE,
+    ),
+    LineMutant(
+        _RO, "RO-2c-dot-dot-component-taken", "a `..` component is resolved, not refused",
+        'if component in (b".", b".."):', "if False:", _DOT_DOT,
+    ),
+    LineMutant(
+        _RO, "RO-3-non-regular-accepted", "a FIFO, socket or device is classified as a file",
+        "return Kind.OTHER", "return Kind.FILE", _FIFO,
+    ),
+    LineMutant(
+        _RO, "RO-4-required-extension-skipped", "a required index extension is skipped",
+        'if not b"A" <= signature[:1] <= b"Z":', "if False:", _SPLIT,
+    ),
+    LineMutant(
+        _RO, "RO-4b-gitlink-entry-accepted", "a gitlink index entry is read as content",
+        "if mode not in INDEX_ENTRY_MODES:", "if False:", _NESTED,
+    ),
+    LineMutant(
+        _RO, "RO-5a-include-accepted", "a configuration include is ignored",
+        'if section in (b"include", b"includeif"):', "if False:", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-5b-format-version-unchecked", "any repository format version is taken",
+        'version in ((b"0",), (b"1",))', "True", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-5c-bare-accepted", "a bare flag is ignored",
+        'and bare == (b"false",)', "and True", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-5d-separate-worktree-accepted", "core.worktree is ignored",
+        "and not separate", "and True", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-5e-unknown-extension-accepted", "an unknown extension is ignored",
+        "and all(known)", "and True", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-5f-mode-refusal-skipped", "an unsupported mode is observed anyway",
+        "if not _mode_supported(determination.config):", "if False:", _MODES,
+    ),
+    LineMutant(
+        _RO, "RO-6-nested-repository-walked", "a nested repository is skipped silently",
+        "if relative:", "if False:", _NESTED,
+    ),
+    LineMutant(
+        _CO, "CO-1-checksum-unverified", "the index checksum is taken as holding",
+        "not _index_checksum_holds(body, trailer)", "not True", _CHECKSUM,
+    ),
+    LineMutant(
+        _CO, "CO-1b-structure-unchecked", "bytes after the last entry and extension are ignored",
+        "structured = position == len(body)", "structured = True", _STRUCTURE,
+    ),
+    LineMutant(
+        _CO, "CO-1c-abbreviated-id-accepted", "a partial or non-canonical object id is taken",
+        "if not (full and hexadecimal):", "if False:", _OBJECT_ID,
+    ),
+    LineMutant(
+        _CO, "CO-1d-stale-packed-ref-read", "the packed ref is read over the loose one",
+        "if loose is not None:", "if False:", _PACKED,
+    ),
+    LineMutant(
+        _CO, "CO-1e-another-branch-packed-ref", "any packed ref is taken as the branch's",
+        "if name == BRANCH_PREFIX + branch", "if True", _PACKED,
+    ),
+    LineMutant(
+        _CO, "CO-2-live-subject-ignored", "condition (ii) always holds",
+        "return not live and not unknown", "return True", _EXCLUSIVE,
+    ),
+    LineMutant(
+        _CO, "CO-2b-live-filter-dropped", "no M3 position counts as live",
+        "if state in LIVE_M3", "if False", _EXCLUSIVE,
+    ),
+    LineMutant(
+        _CO, "CO-3-defeat-ignored", "condition (iii) always holds",
+        "if defeated:", "if False:", _ANY_DEFEAT,
+    ),
+    LineMutant(
+        _CO, "CO-4-git-internals-walked", "the .git directory is walked as working-tree content",
+        "if name == GIT_DIRECTORY:", "if False:", _WHOLE_TREE,
+    ),
+    LineMutant(
+        _CO, "CO-4b-directories-not-walked", "a directory's items are skipped",
+        "elif before.kind == Kind.DIRECTORY:", "elif False:", _WHOLE_TREE,
+    ),
+    LineMutant(
+        _CO, "CO-4c-items-not-recorded", "files and links are skipped",
+        "elif before.kind in (Kind.FILE, Kind.LINK):", "elif False:", _WHOLE_TREE,
+    ),
+    LineMutant(
+        _CO, "DC-1-commit-unchecked", "the observed commit need not be the bound baseline",
+        "all(c in bound.commits for c in commits)", "True", _COMMIT,
+    ),
+    LineMutant(
+        _CO, "DC-2-branch-unchecked", "the observed branch need not be the bound branch",
+        "named == bound.branch", "True", _BRANCH,
+    ),
+    LineMutant(
+        _CO, "DC-3-any-recorded-baseline", "any recorded RC-10 counts as the root's baseline",
+        "and b.identity == bound_baseline", "and True", _UNBOUND,
+    ),
+    LineMutant(
+        _CO, "DC-4-match-conclusion-dropped", "every determinate observation is fixable",
+        "if branch and commit:", "if True:", _COMMIT,
+    ),
+    LineMutant(
+        _DF, "DF-1-torn-read", "a torn read is kept", "if not whole:", "if False:", _TORN,
+    ),
+    LineMutant(
+        _DF, "DF-2-differs-between-reads", "two reads of one determination may differ",
+        "if first != second:", "if False:", _TWO_READS,
+    ),
+    LineMutant(
+        _DF, "DF-3-witness-differs", "the witness rounds may differ",
+        "if not witnessed:", "if False:", _WITNESS,
+    ),
+    LineMutant(
+        _DF, "DF-4-item-appears", "an item appearing mid-walk is ignored",
+        "if set(again) - set(names):", "if False:", _APPEARS,
+    ),
+    LineMutant(
+        _DF, "DF-5-item-disappears", "an item disappearing mid-walk is ignored",
+        "if set(names) - set(again):", "if False:", _DISAPPEARS,
+    ),
+    LineMutant(
+        _DF, "DF-5b-item-absent-when-reached", "an item gone when reached is skipped",
+        "if before.kind == Kind.ABSENT:  # guard:ga_observation_defeat",
+        "if False:  # guard:ga_observation_defeat", _DISAPPEARS,
+    ),
+    LineMutant(
+        _DF, "DF-6-item-changes", "an item whose witness moved is kept",
+        "if before.witness != after.witness:", "if False:", _CHANGES,
+    ),
+    LineMutant(
+        _DF, "DF-7-unreadable", "an unreadable subject is replaced by nothing",
+        "if unreadable:", "if False:", _UNREADABLE_ITEM,
+    ),
+    LineMutant(
+        _DF, "DF-8-forbidden-item", "a socket, FIFO or device is skipped",
+        "elif before.kind == Kind.OTHER:", "elif False:", _SOCKET,
+    ),
+    LineMutant(
+        _DF, "WN-1-witnesses-short-circuit", "matching witnesses override every other defeat",
+        "defeated = bool(causes)", "defeated = bool(causes) and not witnessed", _MATCHING,
+    ),
+    LineMutant(
+        _ON, "ON-1-key-read-deleted", "the root's recorded boundary is never found",
+        "and b.resolved_root == root", "and False", _SECOND_CALL,
+    ),
+    LineMutant(
+        _ON, "ON-2-replay-not-returned", "a recorded boundary does not end the act",
+        "if recorded is not None:", "if False:", _SECOND_CALL,
+    ),
+    LineMutant(
+        _ON, "ON-3-s1-unchecked", "B2 is attempted from any position",
+        "if not at_s1:", "if False:", _ONLY_S1,
+    ),
+    LineMutant(
+        _ON, "ON-4-boundary-without-s2", "the boundary is written without its S2 entry",
+        "store.create_unit((boundary, entry))", "store.create_unit((boundary,))", _ONE_UNIT,
+    ),
+    LineMutant(
+        _ON, "ON-5-unreadable-boundary-absent", "an unreadable boundary is read as none",
+        "if EntryStateBoundaryRecord in withheld:", "if False:", _FACTS,
+    ),
+)  # fmt: skip
+"""`GP-AUTO-ST-07`'s mutants: per guard, per mutant, with the one test that must kill each
+(`MU11-7`). Each replaces one fragment on one tagged line of `observation.py`, so a wrong
+answer is a plausible observation or boundary rather than a crash. None skips checksum
+verification in favour of a hand-written hash (`ST07-OWNER-DECISION-02`)."""
+
+_STRUCTURAL = (
+    "structure of a checksum-verified body: a failing test raises and the observation is"
+    " indeterminate; skipping it only admits a representation Git does not write, whose"
+    " remaining checks and the whole-body consumption (CO-1b) still refuse it or crash"
+)
+_KIND_DISPATCH = "kind dispatch: a wrong kind is refused by the next read, never recorded"
+_UNREACHED = (
+    "fail-closed: an item whose directory was not reached is absent or unreadable as `_parent`"
+    " said; skipping it unpacks a non-tuple, a crash — never a plausible read"
+)
+_ABSENCE_IS_A_FACT = (
+    "absence dispatch: no packed-refs, no loose ref and an unborn branch are observed facts;"
+    " a wrong answer makes every repository indeterminate or crashes, never a plausible value"
+)
+_RESULT_DISPATCH = "type or result dispatch: selects which result to return, and reads nothing"
+_CLASS_SELECTION = "class selection: a record of another class lacks the fields read next"
+
+ST07_UNMUTATED_PREDICATES: Final[dict[tuple[str, str], str]] = {
+    ("_kind", "stat.S_ISDIR(mode)"): _KIND_DISPATCH,
+    ("_kind", "stat.S_ISLNK(mode)"): _KIND_DISPATCH,
+    ("_kind", "stat.S_ISREG(mode)"): (
+        "kind dispatch: forcing it true is the RO-3 substitution on the next line; forcing it"
+        " false makes every file OTHER, a forbidden-mode defeat"
+    ),
+    ("_parent", "name in (b'', b'.', b'..')"): (
+        "fail-closed: a last component that names no item of its own is unreadable; observe"
+        " never forms one below a location, and a location ending so is refused on RO-2c's line"
+    ),
+    ("_parent", "not component"): (
+        "an empty component (the leading `/`, or `//`) names no directory; resolving it opens"
+        " the same directory again, or fails as unreadable — never another item"
+    ),
+    ("_parent", "not isinstance(child, int)"): (
+        "fail-closed: an absent or unreadable intermediate ends the walk; skipping it passes a"
+        " non-descriptor on as a directory, a crash — never a plausible item"
+    ),
+    ("_step", "not stat.S_ISDIR(info.st_mode)"): (
+        "kind dispatch: skipping it opens the non-directory with O_DIRECTORY, which refuses it"
+        " as unreadable — fail-closed, never a followed or misread item"
+    ),
+    ("_lstat", "not isinstance(reached, tuple)"): _UNREACHED,
+    ("_read_regular", "not isinstance(reached, tuple)"): _UNREACHED,
+    ("_read_link", "not isinstance(reached, tuple)"): _UNREACHED,
+    ("_list_dir", "not isinstance(reached, tuple)"): _UNREACHED,
+    ("_take", "start + size > len(body)"): (
+        "bounds: skipping it returns a short slice that struct refuses (a crash) or that fails"
+        " the next structural test; never a plausible entry"
+    ),
+    ("_line", "not raw.endswith(b'\\n') or raw.count(b'\\n') != 1"): (
+        "a one-line representation: skipping it cuts a byte from the ref, which then fails the"
+        " full-object-id guard CO-1c or the symbolic-ref check"
+    ),
+    ("_symbolic_branch", "head is None or not head.startswith(b'ref: ' + BRANCH_PREFIX)"): (
+        "dispatch: a non-symbolic HEAD names no branch; forcing one names a garbage branch that"
+        " fails the ref-name validation or reads an absent ref (unborn, never fixable)"
+    ),
+    ("_packed", "raw is None"): _ABSENCE_IS_A_FACT,
+    ("_packed", "not raw.endswith(b'\\n')"): _STRUCTURAL,
+    ("_packed", "line.startswith(b'#')"): (
+        "the packed-refs header: parsed as a ref line it fails the object-id guard"
+    ),
+    ("_packed", "line.startswith(b'^')"): (
+        "a peeled line: parsed as a ref line it fails the object-id guard"
+    ),
+    ("_packed", "not separator or not name"): _STRUCTURAL,
+    ("_refs", "head is None"): "fail-closed: no HEAD is an integrity failure; skipping it crashes",
+    ("_refs", "not head.startswith(b'ref: ')"): (
+        "dispatch between a detached and a symbolic HEAD; a wrong answer fails the object-id"
+        " guard or the symbolic-ref check"
+    ),
+    ("_refs", "branch is None or _line(head) != b'ref: ' + BRANCH_PREFIX + branch"): (
+        "fail-closed: a symbolic ref outside refs/heads/ is refused; skipping it crashes on a"
+        " None branch"
+    ),
+    ("_refs", "len(named) > 1"): (
+        "two packed lines for one ref, which Git never writes; the ref selection itself is the"
+        " tagged CO-1e filter"
+    ),
+    ("_value", "b'\"' in text"): (
+        "a quoted value is kept whole; every value a mode check reads is unquoted, and a quoted"
+        " one fails its exact comparison"
+    ),
+    ("_mode_supported", "config is None"): (
+        "fail-closed: no configuration is an unsupported mode; skipping it crashes"
+    ),
+    ("_mode_supported", "section == b'extensions'"): (
+        "fail-closed: any other section's key counted as an extension is unknown, and refused"
+    ),
+    ("_entry", "flags & EXTENDED_FLAG"): _STRUCTURAL,
+    ("_entry", "extended & ~(INTENT_TO_ADD_FLAG | SKIP_WORKTREE_FLAG)"): _STRUCTURAL,
+    ("_entry", "version == 4"): (
+        "representation dispatch: versions 2 and 3 pad, version 4 prefix-compresses; a wrong"
+        " answer misreads every path and fails the name-length check"
+    ),
+    ("_entry", "flags & 4095 != min(len(path), 4095) or not path"): _STRUCTURAL,
+    ("_entry", "version < 3"): _STRUCTURAL,
+    ("_entry", "strip > len(previous) or end < 0"): _STRUCTURAL,
+    ("_entry", "end < 0"): _STRUCTURAL,
+    ("_entry", "_take(body, end, following - end).strip(b'\\x00')"): _STRUCTURAL,
+    ("_index_elements", "header[:4] != b'DIRC'"): _STRUCTURAL,
+    ("_index_elements", "version not in (2, 3, 4)"): _STRUCTURAL,
+    ("_index_elements", "not structured"): (
+        "raises on the CO-1b guard, which is the tagged assignment it reads"
+    ),
+    ("_index", "raw is None or len(raw) < TRAILER_SIZE"): (
+        "fail-closed: no index, or one shorter than its checksum, is an integrity failure"
+    ),
+    ("_internal", "before.kind == Kind.ABSENT"): _ABSENCE_IS_A_FACT,
+    ("_internal", "before.kind != Kind.FILE"): (
+        "fail-closed: any other kind is refused by the reader's own no-follow, regular-only"
+        " open and is unreadable"
+    ),
+    ("_round", "branch is not None"): (
+        "dispatch: a detached HEAD has no branch ref to read; forcing it crashes"
+    ),
+    ("_item", "before.kind == Kind.LINK"): (
+        "kind dispatch: a file read as a link, or a link opened as a file, is unreadable"
+        " through the no-follow reader"
+    ),
+    ("observe", "top.kind != Kind.DIRECTORY"): (
+        "fail-closed: a gitfile or absent .git leaves HEAD, configuration and index absent,"
+        " each itself a defeat"
+    ),
+    ("observe", "c in causes"): (
+        "presentation: the causes in the enumeration's order; any cause makes the whole"
+        " observation indeterminate"
+    ),
+    ("bound_referents", "isinstance(resolved, dv.Indeterminate)"): _RESULT_DISPATCH,
+    ("bound_referents", "len(repositories) != 1"): (
+        "fail-closed: no referents, or several, and nothing is read; skipping it crashes"
+    ),
+    ("bound_referents", "isinstance(r, RepositoryBoundary)"): _CLASS_SELECTION,
+    ("bound_referents", "r.identity == bound_repository"): (
+        "fail-closed: another repository boundary makes the count wrong, and nothing is read"
+    ),
+    ("bound_referents", "isinstance(b, BaselineIdentity)"): _CLASS_SELECTION,
+    ("fixable", "isinstance(observed, Indeterminate)"): _RESULT_DISPATCH,
+    ("entry_facts", "isinstance(observed, Indeterminate)"): _RESULT_DISPATCH,
+    ("_recorded", "isinstance(position, dv.Indeterminate)"): (
+        "fail-closed: an undetermined chain is unreadable records; skipping it crashes"
+    ),
+    ("_recorded", "not boundaries and (not entries)"): (
+        "dispatch: nothing recorded; a wrong answer reports an inconsistent pair or crashes"
+    ),
+    ("_recorded", "len(boundaries) == 1 and len(entries) == 1"): (
+        "the replay pair: forced true it crashes on a torn unit, forced false every replay is"
+        " inconsistent — never a second boundary"
+    ),
+    ("_recorded", "isinstance(b, EntryStateBoundaryRecord)"): _CLASS_SELECTION,
+    ("_recorded", "e.edge == M2Edge.B2"): (
+        "fail-closed: counting the S1 entry makes every first call inconsistent"
+    ),
+    ("boundary_facts", "isinstance(found, NotFixed)"): (
+        "FALSE and absent both refuse every guard that reads BOUNDARY_FIXED or RP-4"
+    ),
+    ("fix_entry_boundary", "records.unstable"): (
+        "fail-closed: unstable records are reported unreadable by the key read that follows"
+    ),
+    ("fix_entry_boundary", "not isinstance(position, dv.Occupancy)"): (
+        "fail-closed: an unopened or undetermined epoch has no S1 entry; skipping it crashes"
+    ),
+    ("fix_entry_boundary", "not write_domain_exclusive(records.derivable, root)"): (
+        "unreachable at S1: RC-18 references the root's own RC-17, so no M3 subject of a root"
+        " without a boundary can be stored; write_domain_exclusive carries the CO-2 guards"
+    ),
+    ("fix_entry_boundary", "permitted.get(model.PREFLIGHT_PERMITTED.name) != model.TRUE"): (
+        "unreachable at S1: a resolved root is valid, RA-09 is a validity attribute (S6G3-1),"
+        " and ST-05's B2-0 reads the same fact"
+    ),
+    ("fix_entry_boundary", "bound is None"): (
+        "fail-closed: no referents, and nothing is read; skipping it crashes"
+    ),
+    ("fix_entry_boundary", "isinstance(observed, Indeterminate)"): (
+        "ST-05's B2-2 refuses the same observation, so nothing is written either way"
+    ),
+    ("fix_entry_boundary", "isinstance(admitted, sm.Refused)"): (
+        "fail-closed: a refusal has no target; skipping it crashes before anything is written"
+    ),
+    ("fix_entry_boundary", "isinstance(again, Replayed)"): _RESULT_DISPATCH,
+    ("_settings", "not text or text.startswith((b'#', b';'))"): (
+        "a comment or blank line parsed as a setting names a key no mode check reads"
+    ),
+    (
+        "_settings",
+        "text.endswith(b'\\\\') or (text.startswith(b'[') and (not text.endswith(b']')))",
+    ): "fail-closed: a continuation line or unterminated section header is not interpreted",
+    ("_settings", "text.startswith(b'[')"): (
+        "header dispatch: a header read as a setting leaves the previous section current and"
+        " names no key a mode check reads; an include header is refused on the RO-5a line"
+    ),
+    ("_settings", "section is None"): (
+        "fail-closed: a setting before any section is not interpreted; skipping it crashes"
+    ),
+    ("write_domain_exclusive", "isinstance(r, AuthorityEnvelopeRecord)"): _CLASS_SELECTION,
+    ("write_domain_exclusive", "r.envelope.resolved_root == root"): (
+        "fail-closed: another root's envelopes only make the domain less exclusive"
+    ),
+    ("write_domain_exclusive", "isinstance(p, dv.Indeterminate)"): (
+        "fail-closed: an undetermined subject counts as not exclusive"
+    ),
+    ("write_domain_exclusive", "isinstance(p, dv.Occupancy)"): (
+        "position dispatch: an unoccupied envelope has no state; forcing it crashes"
+    ),
+}
+"""Every comprehension filter and `if` test in `observation.py` not on a tagged line, with the
+reason it carries no mutant. `test_ga37` requires each to be tagged or listed here."""
+
+ST07_KEYED_ACCESSES: Final[dict[tuple[str, str], tuple[int, str, str]]] = {
+    ("_take", "body[start:start + size]"): (1, NON_SELECTION, "the bounded slice itself"),
+    ("_line", "raw[:-1]"): (1, NON_SELECTION, "the line without its newline"),
+    ("_symbolic_branch", "head[len(b'ref: ' + BRANCH_PREFIX):]"): (
+        1, NON_SELECTION, "the branch name after the fixed prefix",
+    ),
+    ("_packed", "raw[:-1]"): (1, NON_SELECTION, "the file without its final newline"),
+    ("_packed", "line[1:]"): (1, NON_SELECTION, "a peeled line's object id, checked only"),
+    ("_refs", "named[0]"): (
+        1, SINGLE_LAWFUL_VALUE, "the one packed line naming the branch, after the count check",
+    ),
+    ("_value", "text.split(b'#', 1)[0].split(b';', 1)[0]"): (
+        1, NON_SELECTION, "the value before a comment",
+    ),
+    ("_value", "text.split(b'#', 1)[0]"): (1, NON_SELECTION, "the value before a comment"),
+    ("_settings", "found[setting]"): (1, NON_SELECTION, "a write: every value is kept"),
+    ("_settings", "found.get(setting, ())"): (1, NON_SELECTION, "the values so far, all kept"),
+    ("_settings", "text[1:-1].strip().split(b' ', 1)[0].split(b'.', 1)[0]"): (
+        1, NON_SELECTION, "a section header's name",
+    ),
+    ("_settings", "text[1:-1].strip().split(b' ', 1)[0]"): (
+        1, NON_SELECTION, "a section header's name",
+    ),
+    ("_settings", "text[1:-1]"): (1, NON_SELECTION, "a section header without its brackets"),
+    ("_mode_supported", "settings.get((b'core', b'repositoryformatversion'), ())"): (
+        1, NON_SELECTION, "a fixed configuration key, read to refuse — the RO-5b guard",
+    ),
+    ("_mode_supported", "settings.get((b'core', b'bare'), (b'false',))"): (
+        1, NON_SELECTION, "a fixed configuration key, read to refuse — the RO-5c guard",
+    ),
+    ("_offset", "_take(body, cursor, 1)[0]"): (2, NON_SELECTION, "one varint byte"),
+    ("_entry", "fixed[40:60]"): (1, NON_SELECTION, "the entry's blob id at its fixed offset"),
+    ("_entry", "body[cursor:end]"): (2, NON_SELECTION, "the entry's path bytes"),
+    ("_entry", "previous[:len(previous) - strip]"): (
+        1, NON_SELECTION, "version 4's shared path prefix",
+    ),
+    ("_index_elements", "header[4:]"): (1, NON_SELECTION, "version and entry count"),
+    ("_index_elements", "header[:4]"): (1, NON_SELECTION, "the signature"),
+    ("_index_elements", "body[position:position + 4]"): (
+        1, NON_SELECTION, "an extension's signature",
+    ),
+    ("_index_elements", "body[position + 4:position + 8]"): (
+        1, NON_SELECTION, "an extension's size",
+    ),
+    ("_index_elements", "signature[:1]"): (
+        1, NON_SELECTION, "the case of an extension's first letter — the RO-4 guard",
+    ),
+    ("_index", "raw[:-TRAILER_SIZE]"): (1, NON_SELECTION, "the checksummed body"),
+    ("_index", "raw[-TRAILER_SIZE:]"): (1, NON_SELECTION, "the trailing checksum"),
+    ("_recorded", "boundaries[0]"): (
+        1, SINGLE_LAWFUL_VALUE, "the one boundary of the root, after the count check",
+    ),
+    ("_recorded", "entries[0]"): (
+        1, SINGLE_LAWFUL_VALUE, "the one B2 entry of the epoch, after the count check",
+    ),
+    ("fix_entry_boundary", "permitted.get(model.PREFLIGHT_PERMITTED.name)"): (
+        1, NON_SELECTION, "ST-06's RA-09 fact, compared to TRUE",
+    ),
+    ("fix_entry_boundary", "Present[M2PositionEntryId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+}  # fmt: skip
+"""Every subscript, `.get` and `.setdefault` in `observation.py`: its count, class and reason.
+None selects a record among several: the root's boundary, its baseline and the branch's ref
+are selected by tagged filters (`ON-1`, `DC-3`, `CO-1e`)."""
+
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -2387,6 +2937,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
     *ST04_MUTANTS,
     *ST05_MUTANTS,
     *ST06_MUTANTS,
+    *ST07_MUTANTS,
 )
 
 

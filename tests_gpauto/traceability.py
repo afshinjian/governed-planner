@@ -96,6 +96,7 @@ STAGES_RUN = (
     "GP-AUTO-ST-04",
     "GP-AUTO-ST-05",
     "GP-AUTO-ST-06",
+    "GP-AUTO-ST-07",
 )
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
@@ -417,6 +418,37 @@ ST06_AP04_ELEMENTS = tuple(f"M1-{number}" for number in range(1, 10))
 """AP-04 §3.3's `M1` rules — AP-11 §16's *"AP-04 `M1`"* among ST-06's frozen inputs."""
 
 
+AP09_PATH = Path("/root/.claude/plans/AP-09-GP-AUTO-001-owner-gates-and-git-authority.md")
+AP09_SHA256 = "18b894b4df6b69bb125781e7c9fc17be49f791b6a069250230d4bfe73ea83c5a"
+"""Frozen AP-09 (OWNER Gates & Git Authority), 917 lines / 179969 bytes. Held in the test tree
+like the others: `GP-AUTO-ST-07`'s scope is its observation module and tests."""
+
+ST07_AP09_ELEMENTS = (
+    *(f"GR9-{number}" for number in range(1, 9)),
+    *(f"OB9-{number}" for number in range(1, 10)),
+    "OB9-9a", "OB9-9b", "OB9-9c", "OB9-9d",
+    *(f"OB9-{number}" for number in range(10, 19)),
+)  # fmt: skip
+"""AP-11 §16's ST-07 frozen inputs from AP-09: §6.3 `GR9-1`…`GR9-8` and §7 `OB9-1`…`OB9-18`,
+with `OB9-9a`…`OB9-9d` each its own row."""
+
+ST07_AP07_ELEMENTS = tuple(f"RS7-{number}" for number in range(1, 6))
+"""AP-07 §9.1 — the entry-boundary record rules (`RS7-1`…`RS7-5`)."""
+
+ST07_AP10_ELEMENTS = ("IX-1", "IX-1a", "IX-2")
+"""AP-10's legacy-content rows AP-11 §16 names among ST-07's frozen inputs."""
+
+
+def st07_elements() -> dict[str, str]:
+    """ST-07's frozen rows: AP-09's `GR9-*` and `OB9-*`, AP-07's `RS7-*` and AP-10's `IX-*`,
+    each parsed from its digest-verified artifact."""
+    return {
+        **_state_machine_rows(AP09_PATH, AP09_SHA256, ST07_AP09_ELEMENTS),
+        **_state_machine_rows(AP07_PATH, AP07_SHA256, ST07_AP07_ELEMENTS),
+        **_state_machine_rows(AP10_PATH, AP10_SHA256, ST07_AP10_ELEMENTS),
+    }
+
+
 def st06_elements() -> dict[str, str]:
     """ST-06's frozen rows: AP-03's `EV-*`, AP-04's `M1-*`, and the accepted clarification's
     `ST06C-I*`, each digest-verified."""
@@ -701,6 +733,70 @@ ST06_CONTRACT_OBLIGATIONS: dict[str, str] = {
 """Labels for `GP-AUTO-ST-06`'s own contract rows (AP-11 §16) — as the earlier stages'
 labels, **not** a second normative inventory: the normative rows are parsed above."""
 
+ST07_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST07-D1": "Deliverable: read-only observation of baseline, branch, committed-history, index "
+    "entries and working-tree content identity.",
+    "ST07-D2": "Deliverable: the three-condition coherence criterion.",
+    "ST07-D3": "Deliverable: defeat tests.",
+    "ST07-D4": "Deliverable: write-once EntryStateBoundary with three separable components.",
+    "ST07-T1": "Test: entry observation once per resolved root, after resolution and before any "
+    "derivation.",
+    "ST07-T2": "Test: dirty and staged-at-entry repositories supported and recorded.",
+    "ST07-T3": "Test: legacy .coord content recorded as pre-existing entry state (CV11-13).",
+    "ST07-N1": "Negative: no index entry or file, ref, object, config or hook written, no "
+    "maintenance, no working-tree file touched (AV11-6).",
+    "ST07-N2": "Negative: no hook, filter, textconv, diff driver, pager or alias executed.",
+    "ST07-N3": "Negative: matching endpoint witnesses not accepted as coherence (AV11-2).",
+    "ST07-N4": "Negative: a present defeat indication => indeterminate (AV11-2a).",
+    "ST07-N5": "Negative: no test requires detection of an unindicated change-and-restore; the "
+    "limitation asserted as retained (AV11-2b).",
+    "ST07-N6": "Negative: each defeat test individually (AV11-3).",
+    "ST07-N7": "Negative: incoherent window => indeterminate, no spliced snapshot, no boundary "
+    "minted (AV11-4).",
+    "ST07-N8": "Negative: no re-observation or replacement of a fixed boundary (AV11-14).",
+    "ST07-N9": "Negative: no clean-tree requirement anywhere.",
+    "ST07-M1": "Mutation: each coherence condition.",
+    "ST07-M2": "Mutation: each defeat test.",
+    "ST07-M3": "Mutation: the once-per-root constraint.",
+    "ST07-M4": "Mutation: the non-mutating-mode guard.",
+    "ST07-R1": "Restart/persistence: boundary durable and unrepeatable; restart never "
+    "re-observes it (AV11-14); Class A.",
+    "ST07-G1": "Static gate: as ST-06, plus no write-side Git call site (GV11-1), provider-free, "
+    "no schema change.",
+    "ST07-A1": "Acceptance: VL11-10 observation half met.",
+    "ST07-A2": "Acceptance: no detection guarantee claimed; endpoint-witness equality "
+    "insufficient; the undetected change-and-restore limitation recorded as retained (AV11-2, "
+    "AV11-2b).",
+}
+"""Labels for `GP-AUTO-ST-07`'s own contract rows (AP-11 §16) — as the earlier stages'
+labels, **not** a second normative inventory: the normative rows are parsed above."""
+
+OWED_AT_ST06_ACCEPTANCE: dict[str, str] = {
+    "AP03-I08": "GP-AUTO-ST-07",
+    "AP03-I11": "GP-AUTO-ST-08",
+    "AP03-I24": "GP-AUTO-ST-09",
+    "AP03-I28": "GP-AUTO-ST-08",
+    "AP03-I36": "GP-AUTO-ST-09",
+    "PB-2(ii)": "GP-AUTO-ST-17",
+    "PB-2(iii)": "GP-AUTO-ST-17",
+    "PB-2(v)": "GP-AUTO-ST-17",
+    "AP04-I22": "GP-AUTO-ST-08",
+    "AP04-I25": "GP-AUTO-ST-16",
+    "AP04-I30": "GP-AUTO-ST-09",
+    "AP04-I31": "GP-AUTO-ST-09",
+    "AP04-I32": "GP-AUTO-ST-10",
+    "AP04-I35": "GP-AUTO-ST-08",
+    "AP04-I36": "GP-AUTO-ST-08",
+    "AP04-I45": "GP-AUTO-ST-09",
+    "AP04-I47": "GP-AUTO-ST-09",
+    "AP04-I48": "GP-AUTO-ST-15",
+    "AP04-I49": "GP-AUTO-ST-09",
+    "AP04-I50": "GP-AUTO-ST-09",
+    "EV-5": "GP-AUTO-ST-12",
+}
+"""The twenty-one rows owed to a later stage when ST-06 was accepted — a historical record, so
+a row owed then and discharged since can be checked against the stage that owed it."""
+
 OWED_AT_ST05_ACCEPTANCE: dict[str, str] = {
     "AP03-I01": "GP-AUTO-ST-06",
     "AP03-I02": "GP-AUTO-ST-06",
@@ -780,10 +876,6 @@ OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
 a row owed then and discharged since can be checked against the stage that owed it."""
 
 OWED_BY: dict[str, tuple[str, str]] = {
-    "AP03-I08": (
-        "GP-AUTO-ST-07",
-        "'Never moves' is a property of the observation and its store, not of a type.",
-    ),
     "AP03-I11": (
         "GP-AUTO-ST-08",
         "Non-convertibility is enforced where state is classified, not where it is typed.",
@@ -905,6 +997,86 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "The applicable obligation set is AP-05's lifecycle; ST-05 reads CE-4 as a "
         "supplied fact and selects no discharge policy.",
     ),
+    # --- GP-AUTO-ST-07: frozen inputs whose remaining clause is a later stage's act ---
+    "OB9-3": (
+        "GP-AUTO-ST-08",
+        "All three identities are recorded at entry: branch and commit by the fixed RC-17 that "
+        "exists only once they matched the bound referents it names (ST07-OWNER-DECISION-01). "
+        "Their comparison at assessment is ST-08's.",
+    ),
+    "OB9-5": (
+        "GP-AUTO-ST-08",
+        "The observation reads only inside the repository boundary; that paths outside it are "
+        "out of scope for delta and drift is classification, which ST-08 owns.",
+    ),
+    "OB9-9a": (
+        "GP-AUTO-ST-08",
+        "The three conditions hold at the entry observation here; the assessment-bracket "
+        "clause of condition (ii) — governance-closed and physically quiescent (PQ-2, K-10) — "
+        "is ST-08's.",
+    ),
+    "OB9-9d": (
+        "GP-AUTO-ST-16",
+        "Nothing of an indeterminate observation becomes authoritative, and it is returned "
+        "enumerated. 'Indeterminacy is recorded' is the B9 halt unit, which ST-16 wires.",
+    ),
+    "OB9-10": (
+        "GP-AUTO-ST-16",
+        "No boundary is fixed and nothing derivable follows; refuse, halt, record and surface "
+        "are the halt unit, which ST-16 wires.",
+    ),
+    "OB9-15": (
+        "GP-AUTO-ST-08",
+        "No assessment observation exists yet; that it is never a boundary observation is "
+        "ST-08's determination recording.",
+    ),
+    "OB9-16": (
+        "GP-AUTO-ST-08",
+        "No re-observation path exists at all (verified here); divergence is classified by ST-08.",
+    ),
+    "OB9-6": (
+        "GP-AUTO-ST-17",
+        "The observation exempts nothing; the exclusion of the coordination record and "
+        "retained productions is achieved by placement (PB-2, IX-3), which ST-17 verifies.",
+    ),
+    "OB9-18": (
+        "GP-AUTO-ST-11",
+        "A new root's boundary is observed by the same mechanics (verified here); new-context "
+        "recovery is ST-11's.",
+    ),
+    "GR9-1": (
+        "GP-AUTO-ST-13",
+        "The coordinator's read is here; role-scoped Git-read grants are session/tool mapping, "
+        "which ST-13 owns.",
+    ),
+    "GR9-2": (
+        "GP-AUTO-ST-13",
+        "The writing roles' lack of Git-read is enforced at the tool-category mapping ST-13 owns.",
+    ),
+    "GR9-3": (
+        "GP-AUTO-ST-12",
+        "Supplying baseline and delta context to a writing role is input packaging, which "
+        "ST-12 owns.",
+    ),
+    "GR9-6": (
+        "GP-AUTO-ST-13",
+        "A reviewing role's own Git reads are its session's, which ST-13 maps.",
+    ),
+    "GR9-8": (
+        "GP-AUTO-ST-08",
+        "The observation writes nothing (verified here); assessing an observed write "
+        "attributable to an observation is classification, which ST-08 owns.",
+    ),
+    "IX-1": (
+        "GP-AUTO-ST-08",
+        "Legacy .coord content is recorded in the fixed boundary as pre-existing entry state "
+        "(verified here); that it is neither stage delta nor drift is ST-08's classification.",
+    ),
+    "IX-1a": (
+        "GP-AUTO-ST-08",
+        "Consequence (i), observation at entry, holds here; the remaining consequences are "
+        "classification and re-determination at assessment, which ST-08 owns.",
+    ),
 }
 """For every element not yet discharged: its first executable stage.
 
@@ -985,6 +1157,8 @@ def inventory() -> dict[str, str]:
         **ST05_CONTRACT_OBLIGATIONS,
         **st06_elements(),
         **ST06_CONTRACT_OBLIGATIONS,
+        **st07_elements(),
+        **ST07_CONTRACT_OBLIGATIONS,
     }
 
 
@@ -1283,9 +1457,10 @@ def main(argv: list[str] | None = None) -> int:
     for element in ("DV-3", "DV-5"):
         row = by_element[element]
         print(f"{element}: {row.disposition} by {row.implementing}.")
-    row = by_element["AP03-I12"]
-    print(f"AP03-I12: {row.disposition} by {row.implementing}.")
-    print("ST05_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
+    for element in ("AP03-I12", "AP03-I08"):
+        row = by_element[element]
+        print(f"{element}: {row.disposition} by {row.implementing}.")
+    print("ST07_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
     return status
 
 

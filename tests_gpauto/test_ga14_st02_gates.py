@@ -35,6 +35,7 @@ from gate_scope import (
     configured_paths,
     gpauto_source_files,
     non_conformant_fixture,
+    stray_fixtures,
 )
 from gpauto import authority, codec, content_identity, equivalence
 from introspect import imported_modules, source_files
@@ -240,6 +241,162 @@ def _production_imports() -> dict[Path, set[str]]:
     return found
 
 
+DIGEST_MODULE = Path("src/gplanner/digest.py")
+OBSERVATION_MODULE = Path("src/gpauto/observation.py")
+AUTHORIZED_HASHLIB_USES = {
+    DIGEST_MODULE: [("sha256", "digest_of_preimage_bytes")],
+    OBSERVATION_MODULE: [("sha1", "_index_checksum_holds")],
+}
+"""Every `hashlib` use in production, as `(attribute, enclosing function)`: SHA-256 once, in
+`digest.py` (`SD11-2`); SHA-1 once, in `_index_checksum_holds` (`ST07-OWNER-DECISION-02`)."""
+
+PRIVATE_HASH_MODULES = frozenset({"_hashlib", "_sha1", "_sha2", "_sha256", "_md5", "_blake2"})
+
+
+def _production_sources() -> dict[Path, str]:
+    return {
+        path.relative_to(REPOSITORY_ROOT): path.read_text(encoding="utf-8")
+        for path in sorted((REPOSITORY_ROOT / "src").rglob("*.py"))
+    }
+
+
+def _hashlib_uses(tree: ast.Module) -> list[tuple[str, str | None]]:
+    """Every use of `hashlib` in one module, as `(attribute, enclosing function)`, however it
+    is bound. `import hashlib` and `import hashlib as h` bind a name, and each use of that
+    name is its attribute — or `<bare>` where the name is used other than as `name.attr`
+    (`getattr`, an assignment, an argument). `from hashlib import x [as y]` is `from:x`. A
+    `.sha256(...)` call on any other receiver is `sha256` too. (An uncalled `.sha256` on
+    another receiver is a data field — in-toto's `digest.sha256` — and a module cannot
+    reach `hashlib` through one without a `<bare>` re-binding, itself a use.)"""
+    functions: dict[ast.AST, str | None] = {}
+    pending: list[tuple[ast.AST, str | None]] = [(tree, None)]
+    while pending:
+        node, function = pending.pop()
+        functions[node] = function
+        inner = node.name if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) else function
+        pending += [(child, inner) for child in ast.iter_child_nodes(node)]
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    bindings = {
+        alias.asname or "hashlib"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name.split(".")[0] == "hashlib"
+    }
+    uses: list[tuple[str, str | None]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "hashlib":
+            uses += [(f"from:{alias.name}", functions[node]) for alias in node.names]
+        elif isinstance(node, ast.Name) and node.id in bindings:
+            parent = parents.get(node)
+            if isinstance(parent, ast.Attribute) and parent.value is node:
+                uses.append((parent.attr, functions[node]))
+            else:
+                uses.append(("<bare>", functions[node]))
+        elif isinstance(node, ast.Attribute) and node.attr == "sha256":
+            bound = isinstance(node.value, ast.Name) and node.value.id in bindings
+            call = parents.get(node)
+            if not bound and isinstance(call, ast.Call) and call.func is node:
+                uses.append(("sha256", functions[node]))
+    return sorted(uses, key=lambda use: (use[0], use[1] or ""))
+
+
+def _sha_confinement_findings(sources: dict[Path, str]) -> list[str]:
+    """`SD11-2` with `ST07-OWNER-DECISION-02`, over every production module: each module's
+    `hashlib` uses are exactly its authorized ones — none, outside `digest.py` and
+    `observation.py` — and no module imports a private hash module."""
+    findings: list[str] = []
+    sha256_sites: dict[Path, int] = {}
+    for path, text in sorted(sources.items()):
+        tree = ast.parse(text)
+        uses = _hashlib_uses(tree)
+        authorized = AUTHORIZED_HASHLIB_USES.get(path, [])
+        if uses != authorized:
+            findings.append(f"{path.as_posix()}: hashlib uses {uses}, authorized {authorized}")
+        sites = [u for u in uses if u[0] in ("sha256", "from:sha256", "new", "<bare>")]
+        if sites:
+            sha256_sites[path] = len(sites)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import | ast.ImportFrom):
+                names = (
+                    [a.name for a in node.names]
+                    if isinstance(node, ast.Import)
+                    else [node.module or ""]
+                )
+                private = {n.split(".")[0] for n in names} & PRIVATE_HASH_MODULES
+                findings += [f"{path.as_posix()}: imports {m}" for m in sorted(private)]
+    if sha256_sites != {DIGEST_MODULE: 1}:
+        findings.append(f"possible SHA-256 sites: {sha256_sites}")
+    return findings
+
+
+def _receiver_named_sha256(sources: dict[Path, str]) -> int:
+    """The pre-`ST07-IMPL-R02` predicate: `.sha256` whose receiver is named `hashlib`."""
+    return sum(
+        1
+        for text in sources.values()
+        for n in ast.walk(ast.parse(text))
+        if isinstance(n, ast.Attribute)
+        and n.attr == "sha256"
+        and isinstance(n.value, ast.Name)
+        and n.value.id == "hashlib"
+    )
+
+
+def _sha_probes(sources: dict[Path, str]) -> dict[str, tuple[Path, str]]:
+    """Each a single re-bound or added hash use in one live production module."""
+    observed, digest = sources[OBSERVATION_MODULE], sources[DIGEST_MODULE]
+    plain = "import hashlib\n"
+    assert observed.count(plain) == 1 and digest.count(plain) == 1
+    checksum = "hashlib.sha1(body, usedforsecurity=False)"
+    assert observed.count(checksum) == 1
+    second = "import hashlib\nimport hashlib as _h\n"
+    return {
+        "aliased_sha256_beside_sha1": (
+            OBSERVATION_MODULE,
+            observed.replace(plain, second) + '\n_EMPTY = _h.sha256(b"").digest()\n',
+        ),
+        "aliased_sha256_in_place_of_sha1": (
+            OBSERVATION_MODULE,
+            observed.replace(plain, "import hashlib as hashes\n").replace(
+                checksum, "hashes.sha256(body)"
+            ),
+        ),
+        "aliased_second_sha256_in_digest": (
+            DIGEST_MODULE,
+            digest.replace(plain, second) + '\n_SECOND = _h.sha256(b"").hexdigest()\n',
+        ),
+        "aliased_module_rebound": (
+            OBSERVATION_MODULE,
+            observed + "\n_HASHES = hashlib\n_EMPTY = _HASHES.sha256(b'').digest()\n",
+        ),
+        "aliased_in_another_module": (
+            Path("src/gpauto/probe.py"),
+            'import hashlib as h\nDIGEST = h.sha256(b"").hexdigest()\n',
+        ),
+        "from_import_sha256": (
+            OBSERVATION_MODULE,
+            observed.replace(plain, plain + "from hashlib import sha256 as _s\n"),
+        ),
+        "named_constructor": (
+            OBSERVATION_MODULE,
+            observed.replace(checksum, 'hashlib.new("sha256", body)'),
+        ),
+        "getattr": (
+            OBSERVATION_MODULE,
+            observed.replace(checksum, 'getattr(hashlib, "sha256")(body)'),
+        ),
+        "sha1_outside_the_checksum": (
+            OBSERVATION_MODULE,
+            observed + '\n_EMPTY = hashlib.sha1(b"", usedforsecurity=False).digest()\n',
+        ),
+        "private_module": (
+            OBSERVATION_MODULE,
+            observed.replace(plain, plain + "import _sha2\n"),
+        ),
+    }
+
+
 @pytest.mark.traces("ST02-A1", "ID-11", "SD11-1", "SD11-2")
 def test_the_repository_has_one_canonicalization_site_and_one_sha256_site() -> None:
     """`ID-11`: JCS in exactly one place; `SD11-2`: `digest.py` the sole SHA-256 site.
@@ -247,8 +404,8 @@ def test_the_repository_has_one_canonicalization_site_and_one_sha256_site() -> N
     Over every production module in the repository — spike and GP-AUTO alike:
 
     * exactly one module imports `rfc8785`, and it is `gplanner/canonical.py`;
-    * exactly one module imports `hashlib`, and it is `gplanner/digest.py`, which
-      calls `sha256` exactly once;
+    * exactly one module imports `hashlib` for identity, and it is `gplanner/digest.py`,
+      which calls `sha256` exactly once, and no other module makes any `sha256` call;
     * **no** production module imports `json`, so no hand-rolled `canonical_json` —
       `json.dumps(sort_keys=True)` or anything like it — can exist beside JCS.
 
@@ -256,23 +413,52 @@ def test_the_repository_has_one_canonicalization_site_and_one_sha256_site() -> N
     and `hashlib` as independent oracles, and GP-AUTO's traceability hashes frozen
     planning *documents* to pin them (`TR11-4`). None of them is on any identity path,
     and GP-AUTO's test tree imports no `rfc8785` at all.
+
+    **From `GP-AUTO-ST-07` on** (`ST07-OWNER-DECISION-02 = A`, the authorized bounded
+    re-expression): the `hashlib` importers are exactly `gplanner/digest.py` and
+    `gpauto/observation.py`. `observation.py` uses `hashlib.sha1` and no other `hashlib`
+    attribute — only to verify the Git index's trailing checksum, confined by `test_ga38`'s
+    gate — so it adds no content, artifact, record or governance identity, and `digest.py`
+    remains the sole SHA-256 content-identity site (`SD11-2`).
+
+    **However `hashlib` is bound** (`ST07-IMPL-R02`): a use is found through every name the
+    module is imported or re-bound under, through `from hashlib import …`, through
+    `hashlib.new` and through `getattr`, and any `.sha256(...)` call counts whatever its
+    receiver. Each module's uses must be exactly its authorized ones — `digest.py`: one
+    `sha256`, in `digest_of_preimage_bytes`; `observation.py`: one `sha1`, in
+    `_index_checksum_holds`; every other module: none. Each is shown to fail on a probe of
+    the live source, the aliased SHA-256 call included, and on a fixture in the package.
     """
     imports = _production_imports()
     assert {path for path, mods in imports.items() if "rfc8785" in mods} == {
         Path("src/gplanner/canonical.py")
     }
     assert {path for path, mods in imports.items() if "hashlib" in mods} == {
-        Path("src/gplanner/digest.py")
+        Path("src/gplanner/digest.py"),
+        Path("src/gpauto/observation.py"),
     }
     assert {path for path, mods in imports.items() if "json" in mods} == set()
 
-    digest_tree = ast.parse((REPOSITORY_ROOT / "src/gplanner/digest.py").read_text("utf-8"))
-    sha256_calls = [
-        node
-        for node in ast.walk(digest_tree)
-        if isinstance(node, ast.Attribute) and node.attr == "sha256"
-    ]
-    assert len(sha256_calls) == 1
+    sources = _production_sources()
+    assert _sha_confinement_findings(sources) == []
+
+    # The probes (`ST07-IMPL-R02`): each is the live production source with one hash use
+    # added or re-bound, and each must be found. The aliased ones are invisible to a check
+    # keyed on the receiver's name being `hashlib` — shown, so the probe is a real one.
+    for label, (path, text) in _sha_probes(sources).items():
+        probed = {**sources, path: text}
+        assert probed != sources, label
+        assert _sha_confinement_findings(probed), label
+        if label.startswith("aliased_"):
+            assert _receiver_named_sha256(probed) == _receiver_named_sha256(sources), label
+    alias_fixture = (
+        '"""Design basis: AP-11 fixture."""\nimport hashlib as h\n'
+        'DIGEST = h.sha256(b"").hexdigest()\n'
+    )
+    with non_conformant_fixture("sha256_alias", alias_fixture) as fixture:
+        findings = _sha_confinement_findings(_production_sources())
+    assert [f for f in findings if f.startswith(fixture.as_posix())], findings
+    assert not stray_fixtures()
 
     gpauto_test_modules = {
         module.split(".")[0]
@@ -382,6 +568,8 @@ def test_st02_declares_exactly_its_operations_and_none_selects_or_orders() -> No
             continue  # GP-AUTO-ST-05's own operations, pinned by its own gate test
         if path.name in structural.ST06_OPERATION_MODULES:
             continue  # GP-AUTO-ST-06's own operations, pinned by its own gate test
+        if path.name in structural.ST07_OPERATION_MODULES:
+            continue  # GP-AUTO-ST-07's own operations, pinned by its own gate test
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Lambda):
                 declared.setdefault(path.name, []).append("<lambda>")
