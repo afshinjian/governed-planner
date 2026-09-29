@@ -95,6 +95,7 @@ STAGES_RUN = (
     "GP-AUTO-ST-03",
     "GP-AUTO-ST-04",
     "GP-AUTO-ST-05",
+    "GP-AUTO-ST-06",
 )
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
@@ -399,6 +400,38 @@ def _state_machine_rows(path: Path, digest: str, wanted: tuple[str, ...]) -> dic
     return {element: found[element] for element in wanted}
 
 
+ST06_CLARIFICATION_PATH = Path(
+    "/root/.claude/plans/ST-06-CLARIFICATION-envelope-bounds-and-candidate-exclusions.md"
+)
+ST06_CLARIFICATION_SHA256 = "610a525b69568fe2faddf9af2571c822594c7fc7dc55d17076d9432729118495"
+"""The accepted ST-06 clarification (G2/G3), 321 lines / 53738 bytes. Held in the test tree
+like the others: `GP-AUTO-ST-06`'s scope is its authority module and tests."""
+
+ST06_CLARIFICATION_ELEMENTS = tuple(f"ST06C-I{number:02d}" for number in range(1, 8))
+"""The clarification's invariants, owned by ST-06 (its §20)."""
+
+ST06_AP03_ELEMENTS = tuple(f"EV-{number}" for number in range(1, 8))
+"""AP-03 §5.3's envelope rules — `EV-*` among AP-11 §16's ST-06 frozen inputs."""
+
+ST06_AP04_ELEMENTS = tuple(f"M1-{number}" for number in range(1, 10))
+"""AP-04 §3.3's `M1` rules — AP-11 §16's *"AP-04 `M1`"* among ST-06's frozen inputs."""
+
+
+def st06_elements() -> dict[str, str]:
+    """ST-06's frozen rows: AP-03's `EV-*`, AP-04's `M1-*`, and the accepted clarification's
+    `ST06C-I*`, each digest-verified."""
+    configured = _traceability_configuration()
+    return {
+        **_state_machine_rows(
+            Path(configured["ap03_path"]), configured["ap03_sha256"], ST06_AP03_ELEMENTS
+        ),
+        **_state_machine_rows(AP04_PATH, AP04_SHA256, ST06_AP04_ELEMENTS),
+        **_state_machine_rows(
+            ST06_CLARIFICATION_PATH, ST06_CLARIFICATION_SHA256, ST06_CLARIFICATION_ELEMENTS
+        ),
+    }
+
+
 def st05_elements() -> dict[str, str]:
     """ST-05's frozen rows: AP-04's and the accepted amendment's, each digest-verified."""
     return {
@@ -636,6 +669,77 @@ ST05_CONTRACT_OBLIGATIONS: dict[str, str] = {
 """Labels for `GP-AUTO-ST-05`'s own contract rows (AP-11 §16) — as the earlier stages'
 labels, **not** a second normative inventory: the normative rows are parsed above."""
 
+ST06_CONTRACT_OBLIGATIONS: dict[str, str] = {
+    "ST06-D1": "Deliverable: eligibility evaluation over RA-00...RA-09.",
+    "ST06-D2": "Deliverable: exactly-one resolution.",
+    "ST06-D3": "Deliverable: CandidateExclusion and AuthorityAmbiguity records.",
+    "ST06-D4": "Deliverable: envelope derivation as a total function of the five frozen inputs.",
+    "ST06-T1": "Test: exactly one eligible => ROOT_RESOLVED.",
+    "ST06-T2": "Test: an exclusion alongside a valid candidate still resolves.",
+    "ST06-T3": "Test: derived bounds <= ceiling.",
+    "ST06-T4": "Test: equal bounds across cycles satisfy AP03-I14.",
+    "ST06-N1": "Negative: zero => ROOT_ABSENT (V-16).",
+    "ST06-N2": "Negative: multiple distinct or same-identity-conflicting => ROOT_CONTESTED "
+    "(V-17a, V-17b).",
+    "ST06-N3": "Negative: no selection, ranking, ordering, preference, reconciliation or merge "
+    "operation exists (AP04-I06, NV11-1).",
+    "ST06-N4": "Negative: no envelope carries a Git class outside {none, bounded read}.",
+    "ST06-N5": "Negative: a reviewing envelope carrying E-12 is refused as malformed, not wider.",
+    "ST06-N6": "Negative: a consumed envelope identity is never reactivated (NV11-2).",
+    "ST06-N7": "Negative: acceptance is never read as authorization (NV11-15).",
+    "ST06-M1": "Mutation: the uniqueness guard.",
+    "ST06-M2": "Mutation: the eligibility completeness guard.",
+    "ST06-M3": "Mutation: bounds <= ceiling.",
+    "ST06-M4": "Mutation: equivalent-or-narrower.",
+    "ST06-M5": "Mutation: role and write-mode checks, and envelope validity (MU11-4).",
+    "ST06-R1": "Restart/persistence: resolution outcome and exclusions durable; resolution "
+    "occurs once per epoch with no re-resolution path (Class A).",
+    "ST06-G1": "Static gate: the GP-AUTO gates extended to the authority module (SD11-12b); "
+    "provider-free; no schema change.",
+    "ST06-A1": "Acceptance: VL11-5 obligations met.",
+}
+"""Labels for `GP-AUTO-ST-06`'s own contract rows (AP-11 §16) — as the earlier stages'
+labels, **not** a second normative inventory: the normative rows are parsed above."""
+
+OWED_AT_ST05_ACCEPTANCE: dict[str, str] = {
+    "AP03-I01": "GP-AUTO-ST-06",
+    "AP03-I02": "GP-AUTO-ST-06",
+    "AP03-I06": "GP-AUTO-ST-06",
+    "AP03-I07": "GP-AUTO-ST-06",
+    "AP03-I08": "GP-AUTO-ST-07",
+    "AP03-I11": "GP-AUTO-ST-08",
+    "AP03-I13": "GP-AUTO-ST-06",
+    "AP03-I14": "GP-AUTO-ST-06",
+    "AP03-I15": "GP-AUTO-ST-06",
+    "AP03-I18": "GP-AUTO-ST-06",
+    "AP03-I24": "GP-AUTO-ST-09",
+    "AP03-I28": "GP-AUTO-ST-08",
+    "AP03-I30": "GP-AUTO-ST-06",
+    "AP03-I36": "GP-AUTO-ST-09",
+    "PB-2(ii)": "GP-AUTO-ST-17",
+    "PB-2(iii)": "GP-AUTO-ST-17",
+    "PB-2(v)": "GP-AUTO-ST-17",
+    "EQ-6": "GP-AUTO-ST-06",
+    "AP04-I03": "GP-AUTO-ST-06",
+    "AP04-I12": "GP-AUTO-ST-06",
+    "AP04-I22": "GP-AUTO-ST-08",
+    "AP04-I25": "GP-AUTO-ST-16",
+    "AP04-I30": "GP-AUTO-ST-09",
+    "AP04-I31": "GP-AUTO-ST-09",
+    "AP04-I32": "GP-AUTO-ST-10",
+    "AP04-I35": "GP-AUTO-ST-08",
+    "AP04-I36": "GP-AUTO-ST-08",
+    "AP04-I45": "GP-AUTO-ST-09",
+    "AP04-I47": "GP-AUTO-ST-09",
+    "AP04-I48": "GP-AUTO-ST-15",
+    "AP04-I49": "GP-AUTO-ST-06",
+    "AP04-I50": "GP-AUTO-ST-09",
+}
+"""The thirty-two rows owed to a later stage when ST-05 was accepted — a historical record,
+so a row owed then and discharged since can be checked against the stage that owed it.
+`AP04-I49` was owed to ST-06 then; ST-06 evidences its derivation clause and it is now owed
+by ST-09 for its adoption clause (see `OWED_BY`)."""
+
 OWED_AT_ST04_ACCEPTANCE: dict[str, str] = {
     "AP03-I01": "GP-AUTO-ST-06",
     "AP03-I02": "GP-AUTO-ST-06",
@@ -676,25 +780,6 @@ OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
 a row owed then and discharged since can be checked against the stage that owed it."""
 
 OWED_BY: dict[str, tuple[str, str]] = {
-    "AP03-I01": (
-        "GP-AUTO-ST-06",
-        "The derivation chain first exists where envelopes are derived from a resolved root.",
-    ),
-    "AP03-I02": (
-        "GP-AUTO-ST-06",
-        "The structural halves hold now — RA-02 is singular and multiplicity is "
-        "representable — but 'at most one may be resolved as root and govern' is a "
-        "resolution outcome, which this stage does not implement.",
-    ),
-    "AP03-I06": (
-        "GP-AUTO-ST-06",
-        "Eligibility, exclusion and the outcome rule are resolution behaviour.",
-    ),
-    "AP03-I07": (
-        "GP-AUTO-ST-06",
-        "The ordering constraint binds the act of deriving; ST-07 supplies the boundary "
-        "observation the chain consumes.",
-    ),
     "AP03-I08": (
         "GP-AUTO-ST-07",
         "'Never moves' is a property of the observation and its store, not of a type.",
@@ -702,18 +787,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
     "AP03-I11": (
         "GP-AUTO-ST-08",
         "Non-convertibility is enforced where state is classified, not where it is typed.",
-    ),
-    "AP03-I13": ("GP-AUTO-ST-06", "Envelope <= ceiling is a comparison this stage does not make."),
-    "AP03-I14": ("GP-AUTO-ST-06", "Re-derivation is an act, and AP-08 governs whether one occurs."),
-    "AP03-I15": (
-        "GP-AUTO-ST-06",
-        "The role-conditional dimensions are typed so applicability is expressible, but "
-        "which role makes which dimension applicable is AP-02 §3.1.2's table — not among "
-        "this stage's frozen inputs, and not invented from AP-03's partial text.",
-    ),
-    "AP03-I18": (
-        "GP-AUTO-ST-06",
-        "A statement about what a derived envelope may grant a reviewing role.",
     ),
     "AP03-I24": (
         "GP-AUTO-ST-09",
@@ -730,11 +803,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "require several records, and that a known-producer unaccounted mutation is "
         "recorded as **both** an UnaccountedMutation and an EnvelopeViolation. That is a "
         "recording behaviour, which ST-08 owns.",
-    ),
-    "AP03-I30": (
-        "GP-AUTO-ST-06",
-        "That no envelope is produced for a non-activated role is a derivation outcome. "
-        "Recording the absence as correct is already expressible and is tested here.",
     ),
     "AP03-I36": (
         "GP-AUTO-ST-09",
@@ -762,24 +830,7 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "before ST-17 (SRB11-29, AP11-I71). AP-10's PB-2(v)-redundancy follow-up is carried "
         "unfixed (SRB11-30). Never N/A.",
     ),
-    "EQ-6": (
-        "GP-AUTO-ST-06",
-        "Indeterminate is never equivalence, and is shown here in every form. The rest "
-        "of the rule — record an AuthorityAmbiguity naming the identity and disagreeing "
-        "classes, constitute no instance, do not begin the stage — is root resolution.",
-    ),
     # --- GP-AUTO-ST-05: AP-04 invariants whose remaining clause is a later stage's act ---
-    "AP04-I03": (
-        "GP-AUTO-ST-06",
-        "ST-05 models no exclusion edge and reads the eligible multiplicity as a supplied "
-        "fact; that the outcome is determined solely by the candidates remaining after "
-        "exclusion is root resolution (AP-11 §16 ST-06: AP-04 M1, V-16...V-18).",
-    ),
-    "AP04-I12": (
-        "GP-AUTO-ST-06",
-        "B6b routes S5 to S8 past both step states, which ST-05 verifies; that no envelope "
-        "is derived for either role is a derivation outcome (as AP03-I30).",
-    ),
     "AP04-I22": (
         "GP-AUTO-ST-08",
         "A property of governance-event records and their classification, not of an edge "
@@ -834,12 +885,20 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "travel to the gate is the gate evidence derivation.",
     ),
     "AP04-I49": (
-        "GP-AUTO-ST-06",
-        "ST-05 owns only C2's dispatch admissibility (OP-8(i)): the admitted obligation set "
-        "equals ST-04's DV-3 CYCLE_BOUND, read and never recomputed, and CYCLE_BOUND enters "
-        "no derivation guard here. That it is never an input to the envelope derivation "
-        "function is envelope derivation, and enforcement at adoption (OP-8(ii), X-08) "
-        "is not ST-05's.",
+        "GP-AUTO-ST-09",
+        "Its derivation clause is evidenced by ST-06 (five inputs, no CYCLE_BOUND, identical "
+        "bounds across cycles) and its C2 clause by ST-05, both as support. The remaining "
+        "clause — E-14's bound enforced at adoption, acting outside it the expansion X-08 — "
+        "is the amendment's OP-* cycle lifecycle, which AP-11 §16 lists among ST-09's frozen "
+        "inputs. The start authorization limits ST-06 to the derivation part.",
+    ),
+    # --- GP-AUTO-ST-06: frozen inputs whose remaining clause is a later stage's act ---
+    "EV-5": (
+        "GP-AUTO-ST-12",
+        "One envelope identity authorizes at most one activation: an activation is dispatch, "
+        "ST-12's act, and C2's V-13 guard is ST-05's. ST-06 supports it — each derivation "
+        "mints a fresh identity, a replay mints none, and the store refuses a second record "
+        "under one identity.",
     ),
     "AP04-I50": (
         "GP-AUTO-ST-09",
@@ -924,6 +983,8 @@ def inventory() -> dict[str, str]:
         **ST04_CONTRACT_OBLIGATIONS,
         **st05_elements(),
         **ST05_CONTRACT_OBLIGATIONS,
+        **st06_elements(),
+        **ST06_CONTRACT_OBLIGATIONS,
     }
 
 

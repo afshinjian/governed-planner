@@ -213,8 +213,9 @@ def test_every_record_class_row_is_realized_by_exactly_one_stage_st03() -> None:
 def test_every_row_owed_to_st03_is_discharged_here_and_no_later_row_is_pulled_forward() -> None:
     """`SRB11-34`: the rows ST-03 owed — `RC-21`, `ID-3`, `ID-4`, `ID-5`, `ID-7`, `ID-8`,
     `ID-14`, `EQ-7`, `EQ-9`, `AP03-I10`, `AP03-I19`, `AP03-I27`, `AP03-I35` — are discharged
-    by ST-03's own evidence; `EQ-6` stays owed by ST-06; and no row owed by a later stage
-    is recorded as discharged here."""
+    by ST-03's own evidence; `EQ-6`, owed to ST-06 when ST-03 was accepted, is still owed
+    by it — or, once ST-06 has run, discharged by exactly ST-06; and no row owed by a later
+    stage is recorded as discharged here."""
     rows = _rows()
     owed_here = (
         "RC-21", "ID-3", "ID-4", "ID-5", "ID-7", "ID-8", "ID-14", "EQ-7", "EQ-9",
@@ -224,8 +225,15 @@ def test_every_row_owed_to_st03_is_discharged_here_and_no_later_row_is_pulled_fo
         assert rows[element].disposition == DISCHARGED, element
         assert rows[element].implementing == GPAUTO_STAGE, element
         assert element not in OWED_BY, element
-    assert rows["EQ-6"].disposition == UNDISCHARGED
-    assert OWED_BY["EQ-6"][0] == "GP-AUTO-ST-06"
+    owed_then = traceability.OWED_AT_ST02_ACCEPTANCE["EQ-6"]
+    assert owed_then == "GP-AUTO-ST-06"
+    if owed_then in traceability.STAGES_RUN:
+        assert rows["EQ-6"].disposition == DISCHARGED
+        assert rows["EQ-6"].implementing == owed_then
+        assert "EQ-6" not in OWED_BY
+    else:
+        assert rows["EQ-6"].disposition == UNDISCHARGED
+        assert OWED_BY["EQ-6"][0] == owed_then
     for element, (stage, _) in OWED_BY.items():
         assert rows[element].disposition == UNDISCHARGED, element
         assert stage not in traceability.STAGES_RUN, element

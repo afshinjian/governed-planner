@@ -36,7 +36,7 @@ from gate_scope import (
     gpauto_source_files,
     non_conformant_fixture,
 )
-from gpauto import codec, content_identity, equivalence
+from gpauto import authority, codec, content_identity, equivalence
 from introspect import imported_modules, source_files
 from test_ga07_gate_scope import run_mypy, run_ruff
 
@@ -296,6 +296,9 @@ def test_gpauto_imports_exactly_the_two_authorized_primitives_by_name() -> None:
     GP-AUTO module's public surface other than as the import itself, and no other
     spike module is reached — not the error module, not the payload profile, not the
     spike's own codec. The test tree reaches the same two modules only.
+
+    From `GP-AUTO-ST-06` on, `authority.py` imports `canonical_bytes` too — `SD11-16`'s own
+    primitive, required by the frozen ST-06 clarification S6G3-6 — under the same rule.
     """
     imported_names: set[tuple[str, str, str]] = set()
     for path in source_files():
@@ -306,10 +309,11 @@ def test_gpauto_imports_exactly_the_two_authorized_primitives_by_name() -> None:
         ("content_identity.py", "gplanner.canonical", "canonical_bytes"),
         ("content_identity.py", "gplanner.digest", "digest_of_preimage_bytes"),
         ("equivalence.py", "gplanner.canonical", "canonical_bytes"),
+        ("authority.py", "gplanner.canonical", "canonical_bytes"),
     }
     assert not [m for _, m in imported_modules() if m == "gplanner" or m == "rfc8785"]
 
-    for module in (content_identity, equivalence):
+    for module in (content_identity, equivalence, authority):
         public = getattr(module, "__all__", None)
         assert public is None, "no re-export surface is declared"
 
@@ -376,6 +380,8 @@ def test_st02_declares_exactly_its_operations_and_none_selects_or_orders() -> No
             continue  # GP-AUTO-ST-04's own operations, pinned by its own gate test
         if path.name in structural.ST05_OPERATION_MODULES:
             continue  # GP-AUTO-ST-05's own operations, pinned by its own gate test
+        if path.name in structural.ST06_OPERATION_MODULES:
+            continue  # GP-AUTO-ST-06's own operations, pinned by its own gate test
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.Lambda):
                 declared.setdefault(path.name, []).append("<lambda>")

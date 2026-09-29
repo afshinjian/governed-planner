@@ -63,6 +63,30 @@ nothing else:
   domain closure, condition satisfaction, the pair's expressibility, alternatives, the
   stratified order `CE-T1`…`CE-T3` and the joint coupled act (`K-9`); a **line** guard.
 
+**From `GP-AUTO-ST-06`, six more guards** — AP-11 §16's ST-06 Mutation cell (*"uniqueness
+guard; eligibility completeness guard; bounds-≤-ceiling; equivalent-or-narrower; role and
+write-mode checks"*) and `MU11-4`'s *"envelope validity"*, with the sites the frozen ST-06
+clarification §18 names — each a **line** guard in `src/gpauto/authority.py`:
+
+* `ga_root_uniqueness` — distinct-identity counting, same-identity consistency and the
+  classes it names; guarantees `AP03-I02`, `M1-4`, `M1-5`, `M1-6`, `AP04-I03`, `EQ-6`.
+* `ga_eligibility_completeness` — the two-pass read, each `RA` check, the lowest-index
+  report, `G1` binding, the validity-only exclusion trigger and its canonical order, the
+  `S6G3-7` indeterminacy, the liveness conjunct and the recorded-prefix check; guarantees
+  `AP03-I06`, `M1-2`, `ST06C-I05`…`ST06C-I07`.
+* `ga_bounds_within_ceiling` — `S6G2-2`(e)…(g), `≤_d` per dimension and the role's member;
+  guarantees `EV-3`, `AP03-I13`, `ST06C-I04`.
+* `ga_equivalent_or_narrower` — the `E-14` term and the prior-envelope key; guarantees
+  `AP03-I14`.
+* `ga_role_write_mode` — `S6G2-2`(a)…(d), (h), the member selected by role, the `E-14`
+  source role, derivability per step, and an envelope's role and write mode; guarantees
+  `ST06C-I01`, `AP03-I18`, `EV-6`.
+* `ga_envelope_validity` — §3.2 applicability, `E-02`, `E-19` and the per-root inputs;
+  guarantees `EV-1`, `EV-2`, `AP03-I15`, `ST06C-I02`.
+
+Every other predicate and every keyed access in the module is inventoried, with the reason
+it carries no mutant, in `ST06_UNMUTATED_PREDICATES` and `ST06_UNQUALIFIED_KEYED_ACCESSES`.
+
 **No harness is installed** (`PG11-2` is undischarged, and a tool install would be a
 halt). This module is test code that performs exactly the two kinds of mutation the
 obligation needs, and nothing more:
@@ -117,6 +141,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from gpauto import (
+    authority,
     codec,
     derivations,
     equivalence,
@@ -222,6 +247,42 @@ GUARDS: Final[dict[str, Guard]] = {
         module=state_machine,
         kind="line",
         guarantees=("CE-T1", "CE-T2", "CE-T3", "AP04-I21", "AP04-I44", "K-9", "AP04-I39"),
+    ),
+    "ga_root_uniqueness": Guard(
+        identifier="ga_root_uniqueness",
+        module=authority,
+        kind="line",
+        guarantees=("AP03-I02", "M1-4", "M1-5", "M1-6", "AP04-I03", "EQ-6"),
+    ),
+    "ga_eligibility_completeness": Guard(
+        identifier="ga_eligibility_completeness",
+        module=authority,
+        kind="line",
+        guarantees=("AP03-I06", "M1-2", "ST06C-I05", "ST06C-I06", "ST06C-I07"),
+    ),
+    "ga_bounds_within_ceiling": Guard(
+        identifier="ga_bounds_within_ceiling",
+        module=authority,
+        kind="line",
+        guarantees=("EV-3", "AP03-I13", "ST06C-I04"),
+    ),
+    "ga_equivalent_or_narrower": Guard(
+        identifier="ga_equivalent_or_narrower",
+        module=authority,
+        kind="line",
+        guarantees=("AP03-I14",),
+    ),
+    "ga_role_write_mode": Guard(
+        identifier="ga_role_write_mode",
+        module=authority,
+        kind="line",
+        guarantees=("ST06C-I01", "AP03-I18", "EV-6"),
+    ),
+    "ga_envelope_validity": Guard(
+        identifier="ga_envelope_validity",
+        module=authority,
+        kind="line",
+        guarantees=("EV-1", "EV-2", "AP03-I15", "ST06C-I02"),
     ),
 }
 
@@ -1298,6 +1359,885 @@ ST05_MUTANTS: Final[tuple[Mutant, ...]] = (
     *ST05_EVALUATOR_MUTANTS,
 )
 
+ST06_ELIGIBILITY = "tests_gpauto/test_ga29_st06_eligibility.py"
+ST06_RESOLUTION = "tests_gpauto/test_ga30_st06_resolution.py"
+ST06_ENVELOPE = "tests_gpauto/test_ga31_st06_envelope.py"
+_CLAUSES = (
+    f"{ST06_ELIGIBILITY}::test_each_ceiling_clause_violated_alone_fails_ra07_and_that_clause_alone"
+)
+_INCOMPLETE = (
+    f"{ST06_ELIGIBILITY}::test_value_expressed_incompleteness_is_invalid_and_names_its_attribute"
+)
+_LOWEST = f"{ST06_ELIGIBILITY}::test_a_multi_failure_record_names_the_lowest_ra_index"
+_BINDING = f"{ST06_ELIGIBILITY}::test_binding_matches_the_attempt_and_the_recorded_ingest_referents"
+_EQ6 = f"{ST06_ELIGIBILITY}::test_an_indeterminate_comparison_is_a_conflict_naming_classes"
+_ONE = (
+    f"{ST06_RESOLUTION}::"
+    "test_one_eligible_instance_resolves_and_an_invalid_sibling_is_excluded_not_fatal"
+)
+_ZERO = f"{ST06_RESOLUTION}::test_zero_eligible_is_root_absent_with_a_missing_authority_refusal"
+_INVALID_OUT = f"{ST06_RESOLUTION}::test_an_invalid_record_never_enters_constitution_or_conflict"
+_INELIGIBLE = (
+    f"{ST06_RESOLUTION}::"
+    "test_binding_mismatch_and_non_liveness_make_a_valid_candidate_ineligible_never_excluded"
+)
+_UNREADABLE = (
+    f"{ST06_RESOLUTION}::"
+    "test_an_unreadable_candidate_leaves_the_resolution_open_with_nothing_false_recorded"
+)
+_UNSTABLE = f"{ST06_RESOLUTION}::test_an_unstable_read_is_indeterminate_and_writes_nothing"
+_ORDER = (
+    f"{ST06_RESOLUTION}::"
+    "test_exclusions_are_appended_in_canonical_byte_order_whatever_the_storage_order"
+)
+_RETRY = (
+    f"{ST06_RESOLUTION}::"
+    "test_a1_is_found_by_its_anchor_and_a_new_attempt_follows_the_terminal_entry"
+)
+_PREFIX = (
+    f"{ST06_RESOLUTION}::"
+    "test_recorded_exclusions_that_are_not_the_canonical_prefix_are_inconsistent"
+)
+_LIVENESS = f"{ST06_RESOLUTION}::test_indeterminate_liveness_leaves_the_resolution_open"
+_FACTS = f"{ST06_RESOLUTION}::test_the_multiplicity_and_consistency_facts_are_read_by_st05_alone"
+_RANGE = f"{ST06_RESOLUTION}::test_a_resolution_ranges_over_its_recorded_candidates_only"
+_ROLES = (
+    f"{ST06_ENVELOPE}::test_each_worker_role_derives_its_member_copied_plus_e14_from_the_frozen_set"
+)
+_CEILING = f"{ST06_ENVELOPE}::test_bounds_within_the_ceiling_and_each_wider_dimension_refused"
+_NARROWER = f"{ST06_ENVELOPE}::test_equivalent_or_narrower_ranges_over_all_eleven_dimensions"
+_PRIORS = (
+    f"{ST06_ENVELOPE}::"
+    "test_c1_refuses_an_envelope_wider_than_a_prior_one_or_beside_one_above_the_ceiling"
+)
+_APPLICABLE = f"{ST06_ENVELOPE}::test_an_inapplicable_dimension_present_is_malformed_not_wider"
+_SHAPE = (
+    f"{ST06_ENVELOPE}::test_role_and_write_mode_hold_and_git_is_never_outside_none_or_bounded_read"
+)
+_NOT_DERIVABLE = (
+    f"{ST06_ENVELOPE}::test_no_envelope_exists_for_a_role_not_activated_on_the_branch_taken"
+)
+_C1_FACTS = f"{ST06_ENVELOPE}::test_the_c1_facts_of_each_envelope_and_of_each_defect"
+_PER_ROOT = f"{ST06_ENVELOPE}::test_per_root_inputs_are_read_for_the_named_root_only"
+_UNREADABLE_PRIOR = (
+    f"{ST06_ENVELOPE}::test_an_unreadable_prior_envelope_fails_c1_closed_and_records_nothing"
+)
+_UNREADABLE_SET = (
+    f"{ST06_ENVELOPE}::test_an_unreadable_frozen_set_is_indeterminate_and_never_an_absence"
+)
+_UNREADABLE_ROOT = (
+    f"{ST06_ENVELOPE}::test_an_unreadable_root_instance_input_is_indeterminate_and_records_nothing"
+)
+
+_EC = "ga_eligibility_completeness"
+_RU = "ga_root_uniqueness"
+_RW = "ga_role_write_mode"
+_BC = "ga_bounds_within_ceiling"
+_EN = "ga_equivalent_or_narrower"
+_EV = "ga_envelope_validity"
+
+ST06_MUTANTS: Final[tuple[LineMutant, ...]] = (
+    LineMutant(
+        _EC, "EC-01-unstable-read-kept", "two read passes that disagree are kept",
+        "if passes[0] != passes[1]:", "if False:", _UNSTABLE,
+    ),
+    LineMutant(
+        _EC, "EC-02-ra09-unchecked", "RA-09 always holds",
+        "(RaAttribute.RA_09_PREFLIGHT_PERMISSION, permitted)",
+        "(RaAttribute.RA_09_PREFLIGHT_PERMISSION, True)", _INCOMPLETE,
+    ),
+    LineMutant(
+        _EC, "EC-03-ra08-unchecked", "RA-08 always holds",
+        "(RaAttribute.RA_08_OWNER_HUMAN_LABEL, labelled)",
+        "(RaAttribute.RA_08_OWNER_HUMAN_LABEL, True)", _INCOMPLETE,
+    ),
+    LineMutant(
+        _EC, "EC-04-ra07-unchecked", "RA-07 always holds",
+        "(RaAttribute.RA_07_AUTHORITY_CEILING, bounded)",
+        "(RaAttribute.RA_07_AUTHORITY_CEILING, True)", _CLAUSES,
+    ),
+    LineMutant(
+        _EC, "EC-05-ra06-unchecked", "RA-06 always holds",
+        "(RaAttribute.RA_06_AUTHORIZED_ROLES, roles)",
+        "(RaAttribute.RA_06_AUTHORIZED_ROLES, True)", _INCOMPLETE,
+    ),
+    LineMutant(
+        _EC, "EC-06-highest-index", "the highest failing RA index is reported",
+        "min(failed, key=RA_ORDER.index)", "max(failed, key=RA_ORDER.index)", _LOWEST,
+    ),
+    LineMutant(
+        _EC, "EC-07-first-evaluated", "the first attribute evaluated is reported",
+        "min(failed, key=RA_ORDER.index)", "failed[0]", _LOWEST,
+    ),
+    LineMutant(
+        _EC, "EC-08-project-unbound", "RA-01 is not matched against the attempt",
+        "c.project == occurrence.project", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-09-stage-unbound", "RA-02 is not matched against the attempt",
+        "c.stage == occurrence.stage", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-10-stage-referent-unbound", "the stage is not matched to its project",
+        "(c.stage, c.project) in stages", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-11-contract-unbound", "RA-03 is not matched to a recorded contract",
+        "c.contract in contracts", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-12-repository-unbound", "RA-04 is not matched to a recorded boundary",
+        "c.repository_boundary in repositories", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-13-baseline-unbound", "RA-05 is not matched to a recorded baseline",
+        "c.baseline in baselines", "True", _BINDING,
+    ),
+    LineMutant(
+        _EC, "EC-14-exclusions-skipped",
+        "an invalid candidate is silently skipped unless RA-07 fails",
+        "if attribute is not None", "if attribute is RaAttribute.RA_07_AUTHORITY_CEILING",
+        _ONE,
+    ),
+    LineMutant(
+        _EC, "EC-15-storage-order", "exclusions follow storage order, not canonical order",
+        "return tuple(by_record[k] for k in sorted(by_record))",
+        "return tuple(by_record.values())",
+        _ORDER,
+    ),
+    LineMutant(
+        _EC, "EC-16-any-occurrence", "every resolution occurrence is taken as this one",
+        "if r.identity == resolution", "if True", _RETRY,
+    ),
+    LineMutant(
+        _EC, "EC-17-unrecorded-candidates", "records outside the candidate set are read",
+        "if r.identity in named", "if True", _RANGE,
+    ),
+    LineMutant(
+        _EC, "EC-18-unreadable-as-absent", "an unreadable candidate is treated as absent",
+        "blocked = bool(unreadable) or len(decoded) != len(named)", "blocked = False",
+        _UNREADABLE,
+    ),
+    LineMutant(
+        _EC, "EC-19-invalid-eligible", "an invalid candidate counts toward eligibility",
+        "valid = tuple(r for r in decoded if not ra_failures(r))", "valid = tuple(decoded)",
+        _ZERO,
+    ),
+    LineMutant(
+        _EC, "EC-20-binding-conjunct-dropped", "a binding mismatch still counts",
+        "if bound is True", "if True", _INELIGIBLE,
+    ),
+    LineMutant(
+        _EC, "EC-21-indeterminacy-ignored", "an indeterminate liveness is ignored",
+        "if isinstance(found, dv.Indeterminate)", "if False", _LIVENESS,
+    ),
+    LineMutant(
+        _EC, "EC-22-liveness-conjunct-dropped", "a non-live instance counts as eligible",
+        "if isinstance(live, dv.Liveness) and live.live", "if isinstance(live, dv.Liveness)",
+        _INELIGIBLE,
+    ),
+    LineMutant(
+        _EC, "EC-23-foreign-exclusions", "another resolution's exclusions are read",
+        "if r.exclusion.identity.parent_resolution == resolution", "if True", _RETRY,
+    ),
+    LineMutant(
+        _EC, "EC-24-prefix-unchecked", "recorded exclusions are not checked",
+        "if recorded != prefix:", "if False:", _PREFIX,
+    ),
+    LineMutant(
+        _RU, "RU-01-indeterminate-class-agrees", "an indeterminate class is not named",
+        "if outcome != EquivalenceOutcome.EQUIVALENT:",
+        "if outcome == EquivalenceOutcome.NOT_EQUIVALENT:", _EQ6,
+    ),
+    LineMutant(
+        _RU, "RU-02-indeterminate-is-equivalent", "INDETERMINATE counts as equivalence",
+        "all(o == EquivalenceOutcome.EQUIVALENT for o in found)",
+        "all(o != EquivalenceOutcome.NOT_EQUIVALENT for o in found)", _EQ6,
+    ),
+    LineMutant(
+        _RU, "RU-03-invalid-records-conflict", "invalid records enter the conflict check",
+        "group = tuple(r for r in same if not ra_failures(r))", "group = tuple(same)",
+        _INVALID_OUT,
+    ),
+    LineMutant(
+        _RU, "RU-04-one-as-zero", "one eligible identity counts as zero",
+        "if count == 0:", "if count <= 1:", _ONE,
+    ),
+    LineMutant(
+        _RU, "RU-05-always-consistent", "same-identity consistency is always TRUE",
+        "facts[key] = _truth(consistent)", "facts[key] = model.TRUE", _FACTS,
+    ),
+    LineMutant(
+        _RW, "RW-01-a-unchecked", "S6G2-2(a) always holds",
+        "return len(roles) == len(set(roles))", "return True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-02-b-unchecked", "S6G2-2(b) always holds",
+        "return members == authorized & WORKER_ROLES", "return True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-03-writer-mode", "a writer member may be READ_ONLY",
+        "w.write_mode == WriteMode.WRITING", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-04-writer-e12", "a writer member may lack E-12",
+        "isinstance(w.write_boundary, Carried)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-05-writer-e20", "a writer member may carry E-20",
+        "isinstance(w.authoritative_input_designation, NotApplicable)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-06-writer-git", "a writer member may hold Git read",
+        "w.git_capability_class == GitCapabilityClass.NONE", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-07-reviewer-mode", "a reviewer member may be WRITING",
+        "r.write_mode == WriteMode.READ_ONLY", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-08-reviewer-e12", "a reviewer member may carry E-12",
+        "isinstance(r.write_boundary, NotApplicable)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-09-reviewer-e20", "a reviewer member may lack E-20",
+        "isinstance(r.authoritative_input_designation, Carried)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-10-reviewer-git", "a reviewer member may hold Git NONE",
+        "and git == GitCapabilityClass.BOUNDED_READ", "and True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-11-writer-shape-as-reviewer", "writers are checked as reviewers",
+        "if role in WRITING_ROLES:", "if role in REVIEWING_ROLES:", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-12-reviewer-shapeless", "reviewers have no shape at all",
+        "if role in REVIEWING_ROLES:", "if False:", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-13-h-unchecked", "S6G2-2(h) always holds",
+        "return member.scope_frame == expected", "return True", _CLAUSES,
+    ),
+    LineMutant(
+        _RW, "RW-14-e14-source-role", "E-14 applies to every role",
+        "if role not in FROZEN_SET_ROLES:", "if False:", _ROLES,
+    ),
+    LineMutant(
+        _RW, "RW-15-branch-ungated", "derivability ignores the branch",
+        "if (role, branch) not in DERIVABLE_ROLE_STEPS:", "if False:", _NOT_DERIVABLE,
+    ),
+    LineMutant(
+        _RW, "RW-16-member-keyed-by-another-role", "the IMPLEMENTER member is always copied",
+        "m.role_applicability == role]  # guard:ga_role_write_mode",
+        "m.role_applicability == Role.IMPLEMENTER]  # guard:ga_role_write_mode", _ROLES,
+    ),
+    LineMutant(
+        _RW, "RW-17-writer-git-unchecked", "a writer envelope may hold Git read",
+        "writer_git = git == GitCapabilityClass.NONE", "writer_git = True", _SHAPE,
+    ),
+    LineMutant(
+        _RW, "RW-18-reviewer-git-unchecked", "a reviewer envelope may hold Git NONE",
+        "reviewer_git = git == GitCapabilityClass.BOUNDED_READ", "reviewer_git = True",
+        _SHAPE,
+    ),
+    LineMutant(
+        _RW, "RW-19-writer-mode-unchecked", "a writer envelope may be READ_ONLY",
+        "writer = mode == WriteMode.WRITING and writer_git", "writer = writer_git", _SHAPE,
+    ),
+    LineMutant(
+        _RW, "RW-20-reviewer-mode-unchecked", "a reviewer envelope may be WRITING",
+        "reviewer = mode == WriteMode.READ_ONLY and reviewer_git", "reviewer = reviewer_git",
+        _SHAPE,
+    ),
+    LineMutant(
+        _RW, "RW-21-envelope-e16-unchecked", "an envelope may carry egress or install",
+        "return shaped and external <= DECLARABLE_SIDE_EFFECTS", "return shaped", _SHAPE,
+    ),
+    LineMutant(
+        _RW, "RW-22-remediator-bounds-any-role", "REMEDIATOR_BOUNDS holds for any E-14 role",
+        "remediator = role == Role.REMEDIATOR and isinstance(e14, Carried)",
+        "remediator = isinstance(e14, Carried)", _C1_FACTS,
+    ),
+    LineMutant(
+        _BC, "BC-01-e-unchecked", "S6G2-2(e) accepts any E-20",
+        "return designated is not None and designated <= readable",
+        "return designated is not None", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-02-remediator-keyed-as-implementer", "the IMPLEMENTER member is REM's",
+        "rem = [m for r, m in pairs if r == Role.REMEDIATOR]",
+        "rem = [m for r, m in pairs if r == Role.IMPLEMENTER]", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-03-implementer-keyed-as-remediator", "the REMEDIATOR member is IMPL's",
+        "imp = [m for r, m in pairs if r == Role.IMPLEMENTER]",
+        "imp = [m for r, m in pairs if r == Role.REMEDIATOR]", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-04-f-writes", "REMEDIATOR writes are not bounded",
+        "r_writes <= i_writes", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-05-f-reads", "REMEDIATOR reads are not bounded",
+        "and r_reads <= i_reads", "and True", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-06-f-tools", "REMEDIATOR tools are not bounded",
+        "set(r.tool_categories) <= set(i.tool_categories)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-07-f-actions", "REMEDIATOR actions are not bounded",
+        "set(r.action_classes) <= set(i.action_classes)", "True", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-08-g-unchecked", "S6G2-2(g) accepts any E-16",
+        "return external <= DECLARABLE_SIDE_EFFECTS", "return True", _CLAUSES,
+    ),
+    LineMutant(
+        _BC, "BC-09-conditional-unbounded", "a carried E-12 or E-20 is within any other",
+        "within = lower_scopes <= upper_scopes", "within = True", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-10-role-unchecked", "the role is not compared",
+        "lo.role_applicability == up.role_applicability", "True", _NARROWER,
+    ),
+    LineMutant(
+        _BC, "BC-11-scope-frame-unchecked", "the scope frame is not compared",
+        "lo.scope_frame == up.scope_frame", "True", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-12-actions-unbounded", "action classes are not bounded",
+        "set(lo.action_classes) <= set(up.action_classes)", "True", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-13-tools-unbounded", "tool categories are not bounded",
+        "set(lo.tool_categories) <= set(up.tool_categories)", "True", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-14-external-unbounded", "E-16 is not bounded",
+        "and external  # guard:ga_bounds_within_ceiling",
+        "and True  # guard:ga_bounds_within_ceiling", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-15-reads-unbounded", "the read boundary is not bounded",
+        "and reads  # guard:ga_bounds_within_ceiling",
+        "and True  # guard:ga_bounds_within_ceiling", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-16-write-mode-unordered", "WRITING is within READ_ONLY",
+        "and mode_within  # guard:ga_bounds_within_ceiling",
+        "and True  # guard:ga_bounds_within_ceiling", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-17-git-unordered", "BOUNDED_READ is within NONE",
+        "and git_within  # guard:ga_bounds_within_ceiling",
+        "and True  # guard:ga_bounds_within_ceiling", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-18-conditionals-ignored", "a wider E-12 or E-20 is ignored",
+        "and all(o == Order.WITHIN for o in conditional)", "and True", _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-19-ceiling-member-keyed-as-implementer", "every envelope meets IMPL's member",
+        "m.role_applicability == role]  # guard:ga_bounds_within_ceiling",
+        "m.role_applicability == Role.IMPLEMENTER]  # guard:ga_bounds_within_ceiling",
+        _CEILING,
+    ),
+    LineMutant(
+        _BC, "BC-20-fact-ignores-ceiling", "BOUNDS_WITHIN_CEILING ignores the comparison",
+        "bounded = ceiling_valid and within", "bounded = ceiling_valid", _C1_FACTS,
+    ),
+    LineMutant(
+        _BC, "BC-21-union-unbounded", "a prior envelope above its member is ignored",
+        "if own != Order.WITHIN:", "if False:", _PRIORS,
+    ),
+    LineMutant(
+        _EN, "EN-01-mixed-e14-accepted", "a mixed E-14 pair is not malformed",
+        "if mixed:", "if False:", _NARROWER,
+    ),
+    LineMutant(
+        _EN, "EN-02-ten-dimensions-ignored", "a wider value on ten dimensions is ignored",
+        "if order != Order.WITHIN:", "if False:", _NARROWER,
+    ),
+    LineMutant(
+        _EN, "EN-03-e14-ignored", "another frozen set compares equal",
+        "same_set = later_set == prior_set", "same_set = True", _NARROWER,
+    ),
+    LineMutant(
+        _EN, "EN-04-foreign-priors", "another root's envelopes are taken as priors",
+        "if p.envelope.resolved_root == root", "if True", _PRIORS,
+    ),
+    LineMutant(
+        _EN, "EN-05-role-ignored-in-key", "a prior of another role is this role's",
+        "envelope.role,  # guard:ga_equivalent_or_narrower",
+        "prior.role,  # guard:ga_equivalent_or_narrower", _ROLES,
+    ),
+    LineMutant(
+        _EN, "EN-06-narrowing-unchecked", "a later envelope wider than a prior is recorded",
+        "if same and order != Order.WITHIN:", "if False:", _PRIORS,
+    ),
+    LineMutant(
+        _EN, "EN-07-unreadable-prior-ignored",
+        "an unreadable prior RC-18 is dropped and C1 decides over the readable remainder",
+        "if _unreadable_of(records, PRIOR_ENVELOPE_READS):", "if False:", _UNREADABLE_PRIOR,
+    ),
+    LineMutant(
+        _EV, "EV-01-any-a2-entry", "any A2 entry is taken as the root's",
+        "and e.result.resolved_root == root", "and True", _PER_ROOT,
+    ),
+    LineMutant(
+        _EV, "EV-02-foreign-records", "another identity's records are the root's",
+        "and r.authorization_identity == root", "and True", _PER_ROOT,
+    ),
+    LineMutant(
+        _EV, "EV-03-invalid-root-records", "an invalid record constitutes the root",
+        "and not ra_failures(r)  # guard:ga_envelope_validity",
+        "and True  # guard:ga_envelope_validity", _ROLES,
+    ),
+    LineMutant(
+        _EV, "EV-04-role-outside-ra06", "a role outside RA-06 is not refused as such",
+        "if role not in content.authorized_roles:", "if False:", _NOT_DERIVABLE,
+    ),
+    LineMutant(
+        _EV, "EV-05-foreign-boundary", "another root's boundary is read",
+        "if b.resolved_root == root", "if True", _PER_ROOT,
+    ),
+    LineMutant(
+        _EV, "EV-06-foreign-frozen-set", "another root's frozen set is read",
+        "if s.resolved_root == root", "if True", _PER_ROOT,
+    ),
+    LineMutant(
+        _EV, "EV-07-non-worker-envelope", "an envelope may exist for a non-worker role",
+        "role in WORKER_ROLES  # guard:ga_envelope_validity",
+        "True  # guard:ga_envelope_validity", _APPLICABLE,
+    ),
+    LineMutant(
+        _EV, "EV-08-e12-applicability", "E-12 applicability is not checked",
+        "e12 == (role in WRITING_ROLES)", "True", _APPLICABLE,
+    ),
+    LineMutant(
+        _EV, "EV-09-e20-applicability", "E-20 applicability is not checked",
+        "e20 == (role in REVIEWING_ROLES)", "True", _APPLICABLE,
+    ),
+    LineMutant(
+        _EV, "EV-10-e14-applicability", "E-14 applicability is not checked",
+        "e14 == (role in FROZEN_SET_ROLES)", "True", _APPLICABLE,
+    ),
+    LineMutant(
+        _EV, "EV-11-bounds-not-rederived", "DERIVATION_TOTAL does not compare the bounds",
+        "and derived.bounds == bounds", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-12-boundary-not-rederived", "DERIVATION_TOTAL ignores the boundary",
+        "and derived.entry_boundary == envelope.entry_boundary", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-13-stage-not-rederived", "DERIVATION_TOTAL ignores the stage",
+        "and derived.stage == envelope.stage", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-14-applicability-ignored", "ENVELOPE_VALID ignores applicability",
+        "envelope_applicability(bounds)  # guard:ga_envelope_validity",
+        "True  # guard:ga_envelope_validity", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-15-shape-ignored", "ENVELOPE_VALID ignores the role shape",
+        "envelope_role_shape(bounds)  # guard:ga_envelope_validity",
+        "True  # guard:ga_envelope_validity", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-16-open-envelope", "an envelope not declared closed is valid",
+        "and envelope.declared_closed", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-17-role-mismatch", "an envelope with another role's bounds is valid",
+        "and bounds.role_applicability == role", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-18-stage-mismatch", "an envelope for another stage is valid",
+        "and envelope.stage == content.stage", "and True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-19-e02-unchecked", "an envelope naming another instance names the root",
+        "names_root = envelope.resolved_root == root", "names_root = True", _C1_FACTS,
+    ),
+    LineMutant(
+        _EV, "EV-20-unreadable-frozen-set-absent", "an unreadable RC-26 is read as no frozen set",
+        "if _unreadable_of(records, ENVELOPE_INPUT_READS):", "if False:", _UNREADABLE_SET,
+    ),
+    LineMutant(
+        _EV, "EV-21-unreadable-root-input-ignored",
+        "the root is read from the readable remainder of an unreadable A2 entry or RC-14",
+        "if _unreadable_of(records, ROOT_INSTANCE_READS):", "if False:", _UNREADABLE_ROOT,
+    ),
+    LineMutant(
+        _EV, "EV-22-readable-subset", "a class ST-04's read found unreadable is taken as readable",
+        "shared = any(k in records.derivable.unreadable for k in kinds)", "shared = False",
+        _UNREADABLE_PRIOR,
+    ),
+)  # fmt: skip
+"""`GP-AUTO-ST-06`'s mutants: per guard, per mutant, with the one test that must kill each
+(`MU11-7`). Each replaces one fragment on one line carrying its guard, so a wrong input still
+yields a plausible value rather than a crash — a crash is not detection."""
+
+_DISPATCH = "type or result dispatch: selects which result to return, and reads no candidate"
+_FAIL_CLOSED_READ = (
+    "fail-closed: any other test returns indeterminacy or a crash, never a plausible value"
+)
+
+ST06_UNMUTATED_PREDICATES: Final[dict[tuple[str, str], str]] = {
+    ("_read_pass", "isinstance(item, UnreadableRecord)"): (
+        "decode dispatch: an unreadable record is surfaced in its own field, never dropped;"
+        " the S6G3-7 consequence is the tagged EC-18 line"
+    ),
+    ("_own", "isinstance(r, kind)"): (
+        "class selection: a record of another class lacks the fields read next and crashes"
+    ),
+    ("_derivable", "isinstance(r, kind)"): (
+        "class selection: a record of another class lacks the fields read next and crashes"
+    ),
+    ("_unreadable_record_ids", "kind is AuthorizationRecord"): (
+        "class selection: RC-12's key is its record identity alone; another class's key names"
+        " no candidate, so a wrong class names nothing a candidate set holds"
+    ),
+    ("_unreadable_record_ids", "column == 'identity'"): (
+        "RC-12's key has exactly one column: any other test names no value"
+    ),
+    ("_carried_scopes", "isinstance(value, NotApplicable)"): _DISPATCH,
+    ("designation_within_read", "member.role_applicability not in REVIEWING_ROLES"): (
+        "applicability of (e): writers carry no E-20 under (c), so the mutated test is"
+        " decided by the tagged (c)/(d) lines, and the tagged BC-01 line carries (e)"
+    ),
+    ("remediator_within_implementer", "not rem"): (
+        "no REMEDIATOR member: (f) has nothing to bound; the keyed selections BC-02/BC-03 are"
+        " tagged"
+    ),
+    ("remediator_within_implementer", "len(rem) != 1 or len(imp) != 1"): (
+        "fail-closed: any other test unpacks a missing or repeated member and crashes"
+    ),
+    ("remediator_within_implementer", "r_writes is None or i_writes is None"): (
+        "fail-closed: any other test compares a missing E-12 and crashes"
+    ),
+    ("ra_failures", "not holds"): (
+        "the set of failures: the tagged EC-02…EC-05 lines decide what holds"
+    ),
+    ("failing_attribute", "not holds"): (
+        "the set of failures: the tagged EC-02…EC-05 lines decide what holds"
+    ),
+    ("failing_attribute", "not failed"): (
+        "fail-closed: any other test takes the minimum of nothing, or reports no attribute"
+        " for an invalid record, which the exclusion model refuses"
+    ),
+    ("binding_match", "_unreadable_of(records, INGEST_REFERENTS)"): (
+        "fail-closed: an unreadable referent is simply absent from the referent sets, so"
+        " dropping the test makes binding false, never true"
+    ),
+    ("identity_consistency", "c in classes"): (
+        "presentation order of the named classes: the set is the tagged RU-01 line's"
+    ),
+    ("evaluate_resolution", "records.unstable"): (
+        "an unstable read holds no records, so the tagged EC-01 and EC-17 lines decide"
+    ),
+    ("evaluate_resolution", "len(occurrences) != 1"): _FAIL_CLOSED_READ,
+    ("evaluate_resolution", "blocked"): "the tagged EC-18 line computes it",
+    ("_multiplicity_of", "unknown"): "the tagged EC-21 line computes it",
+    ("_multiplicity", "count == 1"): (
+        "fail-closed: any other test either unpacks two identities as one or builds a"
+        " distinct-multiplicity ambiguity of one identity, which its record model refuses;"
+        " the zero threshold is the tagged RU-04 line"
+    ),
+    ("_multiplicity_of", "multiplicity != ONE"): (
+        "fail-closed: any other test unpacks a set that is not exactly one identity and"
+        " crashes; the multiplicity itself is the tagged RU-04 line's"
+    ),
+    ("_multiplicity_of", "r.authorization_identity == only"): (
+        "fail-closed: any other selection compares records of two identities, which"
+        " compare_records refuses by raising (EQ-5)"
+    ),
+    ("_multiplicity_of", "not consistency.consistent and (not consistency.disagreeing)"): (
+        "fail-closed: any other test either leaves a resolution open or builds an ambiguity"
+        " with no class, which the record model refuses"
+    ),
+    ("resolution_facts", "evaluation.indeterminacy is None"): (
+        "fail-closed: an indeterminate multiplicity is valued INDETERMINATE, outside the"
+        " fact's domain, so ST-05 refuses every edge whether or not it is supplied"
+    ),
+    ("resolution_facts", "evaluation.consistency is not None"): (
+        "consistency exists only for ONE; supplying none leaves A2 and A4-3 indeterminate"
+    ),
+    ("_attempt_anchor", "a.project == project"): (
+        "attempt selection: the store's MC-17(i) key refuses a second attempt under one"
+        " anchor, so a wrong selection is refused at A1's write"
+    ),
+    ("_attempt_anchor", "a.stage == stage"): (
+        "attempt selection: the store's MC-17(i) key refuses a second attempt under one"
+        " anchor, so a wrong selection is refused at A1's write"
+    ),
+    ("_attempt_anchor", "isinstance(a.predecessor_terminal_entry, Present)"): _DISPATCH,
+    ("_attempt_anchor", "not isinstance(position, dv.Occupancy)"): _FAIL_CLOSED_READ,
+    ("_attempt_anchor", "reached.edge not in dv.COMPLETING_EDGES"): (
+        "an open attempt re-found or a completed one followed: either wrong answer is refused"
+        " by the store's MC-17(i) key"
+    ),
+    ("_attempt_anchor", "reached.identity not in named"): (
+        "a head is the one attempt no other names; any other answer forks (BROKEN_CHAIN) or"
+        " is refused by the MC-17(i) key"
+    ),
+    ("_attempt_anchor", "len(heads) > 1"): _FAIL_CLOSED_READ,
+    ("open_resolution", "records.unstable"): (
+        "an unstable read holds no records; opening under it would name no candidate"
+    ),
+    ("open_resolution", "isinstance(anchor, dv.Indeterminate)"): _DISPATCH,
+    ("open_resolution", "a.project == project"): (
+        "replay selection under the MC-17(i) anchor: a wrong one re-mints and the key refuses"
+    ),
+    ("open_resolution", "a.stage == stage"): (
+        "replay selection under the MC-17(i) anchor: a wrong one re-mints and the key refuses"
+    ),
+    ("open_resolution", "a.predecessor_terminal_entry == anchor"): (
+        "replay selection under the MC-17(i) anchor: a wrong one re-mints and the key refuses"
+    ),
+    ("open_resolution", "existing"): "replay dispatch: the MC-17(i) key refuses a second mint",
+    ("open_resolution", "isinstance(admitted, sm.Refused)"): _DISPATCH,
+    ("_missing_exclusions", "_unreadable_of(records, (CandidateExclusionRecord,))"): (
+        "fail-closed: an unreadable exclusion is absent from the recorded set, so the tagged"
+        " EC-24 prefix check fails or the store refuses a duplicate key"
+    ),
+    ("complete_resolution", "isinstance(recorded, dv.CompletedResolution)"): (
+        "M1-7 dispatch: a completed resolution is re-written under the store's M1 chain key,"
+        " which refuses a second completing entry"
+    ),
+    ("complete_resolution", "e.identity == recorded.completing_entry"): (
+        "single lawful value: the completing entry DV-4 already named"
+    ),
+    ("complete_resolution", "isinstance(recorded, dv.Indeterminate)"): _DISPATCH,
+    ("complete_resolution", "not isinstance(position, dv.Occupancy)"): _FAIL_CLOSED_READ,
+    ("complete_resolution", "isinstance(evaluation, dv.Indeterminate)"): _DISPATCH,
+    ("complete_resolution", "isinstance(missing, dv.Indeterminate)"): _DISPATCH,
+    ("complete_resolution", "missing"): "an empty unit writes nothing",
+    ("complete_resolution", "len(admitted) != 1"): (
+        "fail-closed: any other test unpacks zero edges and crashes; ST-05's guards make the"
+        " three edges mutually exclusive"
+    ),
+    ("complete_resolution", "isinstance(found, sm.Refused)"): "reporting only",
+    ("_completing_unit", "edge.edge == M1Edge.A2"): (
+        "edge dispatch: a wrong outcome record disagrees with the edge ST-05 admitted, and the"
+        " store's RO7A-5 binding check refuses the entry"
+    ),
+    ("_completing_unit", "edge.edge == M1Edge.A3"): (
+        "edge dispatch: a wrong outcome record disagrees with the edge ST-05 admitted, and the"
+        " store's RO7A-5 binding check refuses the entry"
+    ),
+    ("authority_ambiguity", "consistency is None"): (
+        "form dispatch: any other test builds a form its record model refuses (one competing"
+        " identity, or no class)"
+    ),
+    ("canonical_member", "isinstance(write, Carried)"): _DISPATCH,
+    ("canonical_member", "isinstance(designation, Carried)"): _DISPATCH,
+    ("resolved_root", "records.unstable"): _FAIL_CLOSED_READ,
+    ("resolved_root", "isinstance(e.result, ResolvedRootResult)"): (
+        "type dispatch: only an A2 result names a root"
+    ),
+    ("resolved_root", "len(naming) != 1"): _FAIL_CLOSED_READ,
+    ("resolved_root", "r.identity == a2.identity.resolution"): (
+        "single lawful value: the occurrence the A2 entry depends on (RO7A-2)"
+    ),
+    ("resolved_root", "len(occurrences) != 1"): _FAIL_CLOSED_READ,
+    ("resolved_root", "r.identity in candidates"): (
+        "the range of the resolution: a record outside it differs from the root's records and"
+        " the constitution check (identity_consistency) is indeterminate"
+    ),
+    ("resolved_root", "_unreadable_record_ids(records) & set(occurrence.candidates)"): (
+        _FAIL_CLOSED_READ
+    ),
+    ("resolved_root", "not one_identity or not identity_consistency(group).consistent"): (
+        "the explicit same-identity precondition (EQ-5) that keeps compare_records within one"
+        " identity, then a restatement, over the recorded RC-14 candidate set, of the"
+        " ga_root_uniqueness consistency that A2 was admitted under; the tagged identity filter"
+        " above already confines the group, RC-12 is immutable and validity is intrinsic"
+        " (S6G3-1), so no reachable state separates a mutant; EV-02 is killed through it"
+    ),
+    ("_frozen_set_reference", "isinstance(frozen_set, Present)"): _DISPATCH,
+    ("derive_envelope", "len(members) != 1"): (
+        "fail-closed: any other test unpacks a missing or repeated member and crashes"
+    ),
+    ("derive_envelope", "e14 is None"): (
+        "fail-closed: any other test builds bounds with no E-14, which the model refuses"
+    ),
+    ("envelope_inputs", "isinstance(resolved, dv.Indeterminate)"): _DISPATCH,
+    ("envelope_inputs", "len(boundaries) != 1"): _FAIL_CLOSED_READ,
+    ("envelope_inputs", "len(sets) > 1"): _FAIL_CLOSED_READ,
+    ("envelope_inputs", "sets"): _DISPATCH,
+    ("_conditional_order", "lower_scopes is None and upper_scopes is None"): (
+        "fail-closed: any other test compares a missing scope set and crashes, or reports a"
+        " mixed pair as malformed"
+    ),
+    ("_conditional_order", "lower_scopes is None or upper_scopes is None"): (
+        "fail-closed: any other test compares a missing scope set and crashes"
+    ),
+    ("_ten_dimension_order", "Order.MALFORMED in conditional"): (
+        "a malformed pair is also not WITHIN, so the tagged BC-18 line refuses it as well"
+    ),
+    ("within_ceiling", "len(members) != 1"): (
+        "fail-closed: any other test unpacks a missing or repeated member and crashes"
+    ),
+    ("envelope_facts", "isinstance(inputs, dv.Indeterminate)"): _DISPATCH,
+    ("envelope_facts", "not any((isinstance(b, dv.Indeterminate) for b in bindings))"): (
+        "after A2 every constituting record was binding-matched over immutable records, so"
+        " BINDINGS_MATCH cannot be falsified by a record state; G1 is mutated in binding_match"
+    ),
+    ("root_facts", "isinstance(resolved, dv.Indeterminate)"): _DISPATCH,
+    ("record_envelope", "set(supplied) != SUPPLIED_FACTS"): (
+        "caller discipline: a refused call raises; ST-05 still evaluates every fact supplied"
+    ),
+    ("record_envelope", "records.unstable"): _FAIL_CLOSED_READ,
+    ("record_envelope", "r.envelope.resolved_root == root"): (
+        "MC-15 replay selection: a wrong one re-derives, and the store's MC-15 key refuses a"
+        " second envelope under one key"
+    ),
+    ("record_envelope", "r.predecessor_entry == predecessor_entry"): (
+        "MC-15 replay selection: a wrong one re-derives, and the store's MC-15 key refuses a"
+        " second envelope under one key"
+    ),
+    ("record_envelope", "r.target_state == step"): (
+        "MC-15 replay selection: a wrong one re-derives, and the store's MC-15 key refuses a"
+        " second envelope under one key"
+    ),
+    ("record_envelope", "r.envelope.role == role"): (
+        "MC-15 replay selection: a wrong one re-derives, and the store's MC-15 key refuses a"
+        " second envelope under one key"
+    ),
+    ("record_envelope", "keyed"): "replay dispatch: the MC-15 key refuses a second derivation",
+    ("record_envelope", "isinstance(inputs, dv.Indeterminate)"): _DISPATCH,
+    ("record_envelope", "isinstance(derived, NotDerivable)"): _DISPATCH,
+    ("record_envelope", "isinstance(admitted, sm.Refused)"): _DISPATCH,
+    ("record_envelope", "narrowing is not None"): _DISPATCH,
+    ("_replayed", "e.identity.envelope == identity"): (
+        "single lawful value: the C1 entry of the envelope the MC-15 key found"
+    ),
+    ("_replayed", "e.edge == M3Edge.C1"): (
+        "single lawful value: the envelope's one C1 entry, first in its chain"
+    ),
+    ("_replayed", "len(keyed) != 1 or len(entries) != 1"): _FAIL_CLOSED_READ,
+}
+"""Every comprehension filter and `if` test in `authority.py` that is **not** on a guarded
+line, with the reason it carries no mutant. `test_ga32` enumerates every one and requires
+each to be tagged or listed here, so a new selection cannot be added untagged and unlisted
+(the `ST04-IMPL-R02` lesson). A mutant is required where a wrong input still yields a
+plausible value; where every wrong answer fails closed, raises or is refused by a store key,
+the reason says so."""
+
+_TYPE_PARAMETER = "a generic type parameter, not an access"
+
+ST06_UNQUALIFIED_KEYED_ACCESSES: Final[dict[tuple[str, str], tuple[int, str, str]]] = {
+    ("read_authority_records", "passes[0]"): (
+        2,
+        SINGLE_LAWFUL_VALUE,
+        "the two passes are compared, and one is kept only when both are equal",
+    ),
+    ("read_authority_records", "passes[1]"): (
+        1,
+        NON_SELECTION,
+        "an operand of the two-pass agreement test, itself the tagged EC-01 guard",
+    ),
+    ("identity_consistency", "valid[index + 1:]"): (
+        1,
+        NON_SELECTION,
+        "every unordered pair is compared; no record is chosen",
+    ),
+    ("_exclusions", "by_record[k]"): (
+        1,
+        NON_SELECTION,
+        "canonical order over all of them, the tagged EC-15 line; no exclusion is chosen",
+    ),
+    ("_multiplicity_of", "unknown[0]"): (
+        1,
+        NON_SELECTION,
+        "reporting: which indeterminate cause is reported changes no outcome",
+    ),
+    ("resolution_facts", "facts[model.ELIGIBLE_MULTIPLICITY.name]"): (
+        1,
+        NON_SELECTION,
+        "a write of the one supplied fact under its own name",
+    ),
+    ("resolution_facts", "facts[key]"): (
+        1,
+        NON_SELECTION,
+        "a write of the one supplied fact under its own name",
+    ),
+    ("_attempt_anchor", "Present[M1PositionEntryId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("_attempt_anchor", "heads[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `heads` has at most one",
+    ),
+    ("open_resolution", "existing[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "the store's MC-17(i) key holds at most one occurrence per anchor",
+    ),
+    ("_exclusion_chain", "Present[CandidateExclusionId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("_missing_exclusions", "chain[:len(recorded)]"): (
+        1,
+        NON_SELECTION,
+        "the canonical prefix recorded exclusions must equal, the tagged EC-24 check",
+    ),
+    ("_missing_exclusions", "chain[len(recorded):]"): (
+        1,
+        FAIL_CLOSED,
+        "the remainder after an equal prefix; a wrong slice re-writes a recorded key, which"
+        " the store refuses",
+    ),
+    ("_completing_unit", "Present[M1PositionEntryId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("_canonical", "keyed[k]"): (
+        1,
+        NON_SELECTION,
+        "canonical order over every token; no token is chosen",
+    ),
+    ("canonical_member", "Carried[WriteBoundary]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("canonical_member", "Carried[AuthoritativeInputDesignation]"): (
+        1,
+        NON_SELECTION,
+        _TYPE_PARAMETER,
+    ),
+    ("resolved_root", "group[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "every record in the group is EQUIVALENT under compare_records, whose normal form is at"
+        " least as fine as canonical_content; every index yields one value",
+    ),
+    ("_frozen_set_reference", "Carried[FrozenFindingSetId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("envelope_inputs", "Present[FrozenFindingSetId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("envelope_inputs", "sets[0]"): (1, SINGLE_LAWFUL_VALUE, "read only once `sets` has one"),
+    ("envelope_inputs", "boundaries[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `boundaries` has exactly one",
+    ),
+    ("envelope_facts", "Carried[FrozenFindingSetId]"): (1, NON_SELECTION, _TYPE_PARAMETER),
+    ("envelope_facts", "facts[model.BINDINGS_MATCH.name]"): (
+        1,
+        NON_SELECTION,
+        "a write of the one supplied fact under its own name",
+    ),
+    ("_replayed", "keyed[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "the store's MC-15 key holds at most one envelope per key; two is indeterminate",
+    ),
+    ("_replayed", "entries[0]"): (
+        1,
+        SINGLE_LAWFUL_VALUE,
+        "read only once `entries` has exactly one",
+    ),
+}
+"""Every keyed access in `authority.py` — each subscript, `.get` or `.setdefault` — with its
+occurrence count, its class and its reason. ST-06's keyed **selections** of one record out of
+several are comprehension filters on tagged lines (`RW-16`, `BC-02`, `BC-03`, `BC-19`), so no
+subscript here selects a record: each is a type parameter, a write, a comparison operand,
+or the single lawful value left after a count check (the `ST04-IMPL-R02` lesson)."""
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -1446,6 +2386,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
     *ST03_MUTANTS,
     *ST04_MUTANTS,
     *ST05_MUTANTS,
+    *ST06_MUTANTS,
 )
 
 

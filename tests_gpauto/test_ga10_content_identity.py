@@ -33,8 +33,14 @@ from gpauto.content_identity import (
 from gpauto.identity import (
     ArtifactContentId,
     ArtifactProductionId,
+    AuthorizationRecordId,
+    ContentIdentity,
+    DependentIdentity,
     DomainIdentity,
+    MintedIdentity,
+    OpaqueIdentity,
     StageContractId,
+    SuppliedIdentity,
 )
 from gpauto.preimage import (
     PREIMAGE_VERSION,
@@ -178,27 +184,38 @@ def test_the_two_content_classes_are_domain_separated() -> None:
 @pytest.mark.supports("ID-3", "ID-5")
 @pytest.mark.traces("ID-1", "ID-2", "ID-6")
 def test_only_the_two_content_identities_are_ever_derived() -> None:
-    """`ID-1`, `ID-2`: content derives content identities, and nothing else.
+    """`ID-1`, `ID-2`: content derives the two content identities, and nothing else.
 
-    Structural, over the package (`VP11-4`): no production module constructs any
-    identity type other than `StageContractId` and `ArtifactContentId`, so no record,
-    minted or supplied identity is computed from content anywhere, and no content
-    identity can be produced for an occurrence. The derivation functions' own return
-    types say the same.
+    Structural, over the package (`VP11-4`): the content identity kinds are exactly
+    `StageContractId` and `ArtifactContentId`, both constructed, and only in
+    `content_identity.py` from the digest of a preimage. Every other identity the package
+    constructs — of `gpauto.identity` or `gpauto.coordination_identity`, called by name or
+    through an attribute — is shown not to be content-derived by its kind: a minted
+    identity is `mint_value()` alone, a dependent identity is typed parents plus a fresh
+    mint, and a passed-through token comes from a function that touches no
+    content-derivation primitive. So no record, minted or supplied identity is computed
+    from content, and no content identity can be produced for an occurrence. The
+    derivation functions' own return types say the same.
     """
-    identity_names = {
-        cls.__name__
+    content_kinds = {
+        cls
         for cls in _identity_classes()
-        if cls.__module__ == "gpauto.identity"
+        if issubclass(cls, ContentIdentity) and cls is not ContentIdentity
     }
-    constructed: set[str] = set()
+    assert content_kinds == {StageContractId, ArtifactContentId}
+
+    violations: list[str] = []
+    content_constructed: set[type[DomainIdentity]] = set()
     for path in source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                if node.func.id in identity_names:
-                    constructed.add(node.func.id)
-    assert constructed == {"StageContractId", "ArtifactContentId"}
+        for function, cls, call in _identity_constructions(tree):
+            problem = _construction_violation(path.name, function, cls, call)
+            if problem is not None:
+                violations.append(f"{path.name}:{call.lineno}: {problem}")
+            if issubclass(cls, ContentIdentity):
+                content_constructed.add(cls)
+    assert violations == []
+    assert content_constructed == {StageContractId, ArtifactContentId}
 
     hints = {
         name: typing.get_type_hints(function).get("return")
@@ -215,14 +232,174 @@ def test_only_the_two_content_identities_are_ever_derived() -> None:
     }
 
 
+IDENTITY_MODULES = ("gpauto.identity", "gpauto.coordination_identity")
+"""The modules that declare identity classes; a construction of any of them is checked."""
+
+KIND_BASES: frozenset[type[DomainIdentity]] = frozenset(
+    {
+        DomainIdentity,
+        OpaqueIdentity,
+        SuppliedIdentity,
+        MintedIdentity,
+        ContentIdentity,
+        DependentIdentity,
+    }
+)
+"""The kind bases, which no production code may construct directly."""
+
+CONTENT_DERIVATION_MODULE = "content_identity.py"
+
+CONTENT_PRIMITIVES = frozenset(
+    {"digest_of_preimage_bytes", "canonical_bytes", "_canonical_key", "hashlib", "sha256"}
+)
+"""Names through which a value can be derived from content, besides `content_identity`'s
+own public functions."""
+
+
 def _identity_classes() -> list[type[DomainIdentity]]:
+    import gpauto.coordination_identity as coordination_identity_module
     import gpauto.identity as identity_module
 
     return [
         value
-        for value in vars(identity_module).values()
-        if isinstance(value, type) and issubclass(value, DomainIdentity)
+        for module in (identity_module, coordination_identity_module)
+        for value in vars(module).values()
+        if isinstance(value, type)
+        and issubclass(value, DomainIdentity)
+        and value.__module__ in IDENTITY_MODULES
     ]
+
+
+def _identity_constructions(
+    tree: ast.AST,
+) -> list[tuple[ast.FunctionDef | ast.AsyncFunctionDef | None, type[DomainIdentity], ast.Call]]:
+    """Every construction of an identity class in `tree`, with its enclosing function."""
+    by_name = {cls.__name__: cls for cls in _identity_classes()}
+    found: list[
+        tuple[ast.FunctionDef | ast.AsyncFunctionDef | None, type[DomainIdentity], ast.Call]
+    ] = []
+
+    def visit(node: ast.AST, function: ast.FunctionDef | ast.AsyncFunctionDef | None) -> None:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            function = node
+        if isinstance(node, ast.Call):
+            callee = node.func
+            name = (
+                callee.id
+                if isinstance(callee, ast.Name)
+                else callee.attr
+                if isinstance(callee, ast.Attribute)
+                else None
+            )
+            if name in by_name:
+                found.append((function, by_name[name], node))
+        for child in ast.iter_child_nodes(node):
+            visit(child, function)
+
+    visit(tree, None)
+    return found
+
+
+def _is_mint(node: ast.expr) -> bool:
+    """`mint_value()` or `minting.mint_value()`: no arguments, nothing else."""
+    if not isinstance(node, ast.Call) or node.args or node.keywords:
+        return False
+    callee = node.func
+    if isinstance(callee, ast.Name):
+        return callee.id == "mint_value"
+    return (
+        isinstance(callee, ast.Attribute)
+        and callee.attr == "mint_value"
+        and isinstance(callee.value, ast.Name)
+        and callee.value.id == "minting"
+    )
+
+
+def _is_pass_through(node: ast.expr) -> bool:
+    """A `Name` or `Attribute`, or `str(<Name or Attribute>)`: an existing token unchanged."""
+    if isinstance(node, ast.Name | ast.Attribute):
+        return True
+    return (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "str"
+        and not node.keywords
+        and len(node.args) == 1
+        and isinstance(node.args[0], ast.Name | ast.Attribute)
+    )
+
+
+def _content_primitives() -> frozenset[str]:
+    public = {
+        name
+        for name, function in inspect.getmembers(content_identity, inspect.isfunction)
+        if function.__module__ == content_identity.__name__ and not name.startswith("_")
+    }
+    return CONTENT_PRIMITIVES | public
+
+
+def _touches_content(function: ast.AST) -> bool:
+    primitives = _content_primitives()
+    for node in ast.walk(function):
+        if isinstance(node, ast.Name) and node.id in primitives:
+            return True
+        if isinstance(node, ast.Attribute) and node.attr in primitives:
+            return True
+    return False
+
+
+def _construction_violation(
+    filename: str,
+    function: ast.FunctionDef | ast.AsyncFunctionDef | None,
+    cls: type[DomainIdentity],
+    call: ast.Call,
+) -> str | None:
+    """Why this construction could derive an identity from content, or `None` if it cannot."""
+    if cls in KIND_BASES:
+        return f"{cls.__name__} is a kind base"
+    if call.args or any(k.arg is None for k in call.keywords):
+        return f"{cls.__name__} is built from positional or unpacked arguments"
+    keywords = {k.arg: k.value for k in call.keywords if k.arg is not None}
+    if issubclass(cls, ContentIdentity):
+        if cls not in {StageContractId, ArtifactContentId}:
+            return f"{cls.__name__} is not one of the two content identities"
+        if filename != CONTENT_DERIVATION_MODULE:
+            return f"{cls.__name__} is constructed outside {CONTENT_DERIVATION_MODULE}"
+        value = keywords.get("value")
+        if not (
+            set(keywords) == {"value"}
+            and isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id == "digest_of_preimage_bytes"
+            and not value.keywords
+            and len(value.args) == 1
+            and isinstance(value.args[0], ast.Name)
+        ):
+            return f"{cls.__name__} is not value=digest_of_preimage_bytes(<name>)"
+        return None
+    if issubclass(cls, MintedIdentity):
+        if set(keywords) != {"value"} or not _is_mint(keywords["value"]):
+            return f"{cls.__name__} is not value=mint_value() alone"
+        return None
+    if issubclass(cls, DependentIdentity):
+        for name, value in keywords.items():
+            field = cls.model_fields.get(name)
+            if field is None:
+                return f"{cls.__name__} has no field {name}"
+            annotation = field.annotation
+            if annotation is str:
+                if not _is_mint(value):
+                    return f"{cls.__name__}.{name} is a discriminator that is not mint_value()"
+            elif not (isinstance(annotation, type) and issubclass(annotation, DomainIdentity)):
+                return f"{cls.__name__}.{name} is not a typed identity reference"
+        return None
+    if issubclass(cls, SuppliedIdentity) or cls is AuthorizationRecordId:
+        if set(keywords) != {"value"} or not _is_pass_through(keywords["value"]):
+            return f"{cls.__name__} does not pass an existing token through unchanged"
+        if function is None or _touches_content(function):
+            return f"{cls.__name__} is passed through where content may be derived"
+        return None
+    return f"{cls.__name__} is of no permitted identity kind"
 
 
 @pytest.mark.traces("ID-9")

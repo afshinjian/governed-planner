@@ -69,6 +69,11 @@ checks and matrix generator (AP-11 §16 ST-05, *Authorized scope*). Its model da
 `state_machine_model.py`, declares no function, and this test keeps asserting that. Its
 functions are pinned in `test_ga28`."""
 
+ST06_OPERATION_MODULES = frozenset({"authority.py"})
+"""The module `GP-AUTO-ST-06` was authorized to add operations in — root resolution and
+envelope derivation (AP-11 §16 ST-06, *Authorized scope*: *"GP-AUTO authority module"*) —
+and no other. Its functions are pinned in `test_ga33`."""
+
 NEVER_AN_ENTITY = {
     "AuthorityCeiling": (
         "an identity-less value inside the authorization: RA-07 is a role-indexed tuple of "
@@ -202,6 +207,7 @@ def test_the_package_declares_no_function_at_all() -> None:
             | ST03_OPERATION_MODULES
             | ST04_OPERATION_MODULES
             | ST05_OPERATION_MODULES
+            | ST06_OPERATION_MODULES
         ):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -416,6 +422,11 @@ def test_gpauto_imports_no_gp_spk_001_module() -> None:
     primitives, imported only by ST-02's identity and equivalence modules — and no
     other spike module, from anywhere in the package. The imported *names* are pinned
     in `test_ga14`.
+
+    **From `GP-AUTO-ST-06` on**, `authority.py` imports `canonical` as well: `SD11-16`
+    authorizes that module to GP-AUTO, and the frozen ST-06 clarification S6G3-6 requires
+    canonical (JCS) byte order. It is the same primitive, so no new coupling exists
+    (`SD11-16a`); `digest` is still imported by `content_identity.py` alone.
     """
     spike_imports = {
         (path.name, module)
@@ -426,6 +437,7 @@ def test_gpauto_imports_no_gp_spk_001_module() -> None:
         ("content_identity.py", "gplanner.canonical"),
         ("content_identity.py", "gplanner.digest"),
         ("equivalence.py", "gplanner.canonical"),
+        ("authority.py", "gplanner.canonical"),
     }
 
 

@@ -33,16 +33,17 @@ import tempfile
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Literal, TypeAliasType, cast, get_args, get_origin
+from typing import Literal, TypeAliasType, cast, get_args, get_origin, get_type_hints
 
 import pytest
 from pydantic import BaseModel
 
 import st03_ingest
 from gate_scope import REPOSITORY_ROOT
+from gpauto import authority, equivalence
 from gpauto import derivations as dv
-from gpauto import equivalence
-from gpauto.authorization import AuthorizationRecord
+from gpauto.authorization import AuthorityBearingContent, AuthorizationRecord
+from gpauto.bounds import AuthorityBounds, AuthorityCeilingMember
 from gpauto.governance import OwnerDecision
 from gpauto.store import (
     CoordinationStore,
@@ -464,23 +465,169 @@ def test_the_absence_check_is_structural_and_reports_each_derived_storage_surfac
 # --- DV-11: reuse boundary (DO11-6) --------------------------------------------------------
 
 
+ST06_REPRESENTATION_HELPERS = {
+    "_canonical_key",
+    "_canonical",
+    "canonical_member",
+    "canonical_content",
+}
+"""`authority.py`'s canonical-representation helpers: each maps one value to one value in
+the canonical JCS member order (`EQ-3`, `S6G3-6`), and none decides equality."""
+
+ST06_BOUNDS_RELATIONS = {"equivalent_or_narrower"}  # S6G2-7
+"""`authority.py`'s bounds-only `Order` relations whose names match the comparator words;
+`within_ceiling` (`S6G2-6`) matches no word."""
+
+COMPARATOR_WORDS = ("compar", "equivalen", "normal", "canonical", "normform")
+
+COMPARATOR_MODULES = {"equivalence.py", "content_identity.py", "preimage.py", "authority.py"}
+
+CANONICAL_KEY_USERS = {"_canonical", "_exclusions", "open_resolution", "authority_ambiguity"}
+"""Where `_canonical_key` may be referenced: ordering or deduplicating the tokens of one
+value, or record and authorization identities — never authority-bearing content."""
+
+
+def _comparator_names(tree: ast.AST) -> list[str]:
+    """Every function in `tree` whose name denotes comparison, equivalence or normal form."""
+    return [
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef)
+        and any(word in node.name.lower() for word in COMPARATOR_WORDS)
+    ]
+
+
+def _is_content_value(node: ast.AST, parents: dict[ast.AST, ast.AST]) -> bool:
+    """A call to `canonical_content` or `canonical_member`, or a whole-record `<x>.content`."""
+    if isinstance(node, ast.Call):
+        callee = node.func
+        name = (
+            callee.id
+            if isinstance(callee, ast.Name)
+            else callee.attr
+            if isinstance(callee, ast.Attribute)
+            else None
+        )
+        return name in {"canonical_content", "canonical_member"}
+    if isinstance(node, ast.Attribute) and node.attr == "content":
+        parent = parents.get(node)
+        return not (isinstance(parent, ast.Attribute) and parent.value is node)
+    return False
+
+
+def _compared_content(tree: ast.AST) -> list[str]:
+    """Each place in `tree` where content reaches a comparison, a set collapse or `len`."""
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    sites: list[ast.expr] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Compare):
+            sites += [node.left, *node.comparators]
+        elif isinstance(node, ast.Set):
+            sites += node.elts
+        elif isinstance(node, ast.SetComp):
+            sites.append(node.elt)
+        elif isinstance(node, ast.DictComp):
+            sites.append(node.key)
+        elif isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            if node.func.id == "len":
+                sites += node.args
+    return [
+        f"{site.lineno}: {ast.unparse(site)}"
+        for site in sites
+        for found in ast.walk(site)
+        if _is_content_value(found, parents)
+    ]
+
+
+def _referencing_functions(tree: ast.AST, name: str) -> set[str]:
+    """The innermost enclosing function of every reference to `name` in `tree`."""
+    found: set[str] = set()
+
+    def visit(node: ast.AST, function: str | None) -> None:
+        if isinstance(node, ast.FunctionDef):
+            function = node.name
+        if isinstance(node, ast.Name) and node.id == name:
+            found.add(str(function))
+        for child in ast.iter_child_nodes(node):
+            visit(child, function)
+
+    visit(tree, None)
+    return found
+
+
 @pytest.mark.traces("DO11-6", "ST04-T6")
 def test_equivalence_is_reached_only_through_st02s_function_and_st04_adds_no_comparator() -> None:
     """`DO11-6`, `SRB11-4`: the only comparison of authority-bearing content in GP-AUTO is
     ST-02's `equivalence.py`. The derivations module declares no comparator, normal form
     or canonicalization, imports neither `equivalence` nor any canonicalization primitive,
-    and needs none — no derivation it implements compares authority-bearing content."""
+    and needs none — no derivation it implements compares authority-bearing content.
+
+    `authority.py` declares exactly the named canonical-representation helpers and the one
+    bounds relation whose names match: each helper transforms one value into the same type
+    and never judges, no helper result or whole content is ever compared, collapsed into a
+    set or counted, `_canonical_key` orders tokens and identities only, and the two bounds
+    relations take `AuthorityBounds` and return an `Order`, never content or an
+    `EquivalenceOutcome`."""
     comparators: dict[str, list[str]] = {}
+    trees: dict[str, ast.Module] = {}
     for path in source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and any(
-                word in node.name.lower()
-                for word in ("compar", "equivalen", "normal", "canonical", "normform")
-            ):
-                comparators.setdefault(path.name, []).append(node.name)
-    assert set(comparators) <= {"equivalence.py", "content_identity.py", "preimage.py"}
+        trees[path.name] = tree
+        names = _comparator_names(tree)
+        if names:
+            comparators[path.name] = names
+    assert set(comparators) <= COMPARATOR_MODULES
     assert "derivations.py" not in comparators
+    assert sorted(comparators["authority.py"]) == sorted(
+        ST06_REPRESENTATION_HELPERS | ST06_BOUNDS_RELATIONS
+    )
+
+    helpers = [
+        node
+        for node in ast.walk(trees["authority.py"])
+        if isinstance(node, ast.FunctionDef) and node.name in ST06_REPRESENTATION_HELPERS
+    ]
+    assert {h.name for h in helpers} == ST06_REPRESENTATION_HELPERS
+    for helper in helpers:
+        for node in ast.walk(helper):
+            assert not isinstance(node, ast.Compare | ast.BoolOp), helper.name
+            if isinstance(node, ast.Call):
+                callee = ast.unparse(node.func)
+                assert not callee.endswith(("compare_records", "compare_encoded_records"))
+    verdicts = (bool, equivalence.EquivalenceOutcome, authority.Order)
+    hints = {h: get_type_hints(getattr(authority, h)) for h in ST06_REPRESENTATION_HELPERS}
+    assert not {h for h, hint in hints.items() if hint["return"] in verdicts}
+    assert hints["canonical_member"] == {
+        "member": AuthorityCeilingMember,
+        "return": AuthorityCeilingMember,
+    }
+    assert hints["canonical_content"] == {
+        "content": AuthorityBearingContent,
+        "return": AuthorityBearingContent,
+    }
+    assert get_origin(hints["_canonical"]["return"]) is tuple
+    assert hints["_canonical"]["values"] == hints["_canonical"]["return"]
+    assert hints["_canonical_key"]["return"] is bytes
+
+    for name, tree in trees.items():
+        if name != "equivalence.py":
+            assert _compared_content(tree) == [], name
+
+    assert _referencing_functions(trees["authority.py"], "_canonical_key") <= CANONICAL_KEY_USERS
+    for name, tree in trees.items():
+        if name != "authority.py":
+            assert not _referencing_functions(tree, "_canonical_key"), name
+
+    assert get_type_hints(authority.equivalent_or_narrower) == {
+        "later": AuthorityBounds,
+        "prior": AuthorityBounds,
+        "return": authority.Order,
+    }
+    assert get_type_hints(authority.within_ceiling) == {
+        "bounds": AuthorityBounds,
+        "ceiling": tuple[AuthorityCeilingMember, ...],
+        "return": authority.Order,
+    }
 
     tree = ast.parse(inspect.getsource(dv))
     imported = {

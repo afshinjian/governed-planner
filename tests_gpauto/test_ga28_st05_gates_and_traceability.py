@@ -231,18 +231,29 @@ def test_every_st05_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
     """Every frozen ST-05 row and every ST-05 contract row is discharged with ST-05 as
     implementing and local-verifying stage, except the AP-04 invariants whose remaining
     clause is a later stage's act — each recorded in `OWED_BY` with its reason, owed by a
-    stage that has not run, never `N/A` and never discharged here."""
+    stage that has not run, never `N/A` and never discharged here. The set owed at ST-05's
+    acceptance is the historical `OWED_AT_ST05_ACCEPTANCE` record: a row owed then and since
+    discharged by the stage that owed it is checked against that stage."""
     rows = _rows()
-    owed_here = {e for e in traceability.st05_elements() if e in OWED_BY}
-    assert owed_here == {
+    owed_then = {
+        e: stage
+        for e, stage in traceability.OWED_AT_ST05_ACCEPTANCE.items()
+        if e in traceability.st05_elements()
+    }
+    assert set(owed_then) == {
         "AP04-I03", "AP04-I12", "AP04-I22", "AP04-I25", "AP04-I30", "AP04-I31", "AP04-I32",
         "AP04-I35", "AP04-I36", "AP04-I45", "AP04-I47", "AP04-I48", "AP04-I49", "AP04-I50",
     }  # fmt: skip
     for element in [*traceability.st05_elements(), *traceability.ST05_CONTRACT_OBLIGATIONS]:
         row = rows[element]
-        if element in owed_here:
-            assert row.disposition == UNDISCHARGED, element
-            assert row.implementing not in traceability.STAGES_RUN, element
+        if element in owed_then:
+            assert row.implementing != GPAUTO_STAGE, element
+            if element in OWED_BY:
+                assert row.disposition == UNDISCHARGED, element
+                assert row.implementing not in traceability.STAGES_RUN, element
+            else:
+                assert row.disposition == DISCHARGED, element
+                assert row.implementing == owed_then[element], element
         else:
             assert row.disposition == DISCHARGED, element
             assert row.implementing == row.local_verifying == GPAUTO_STAGE, element
@@ -252,8 +263,9 @@ def test_every_st05_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
 def test_ap03_i12_is_discharged_here_and_nothing_owed_later_is_pulled_forward() -> None:
     """`AP03-I12`, owed by ST-05 since ST-01, is discharged by ST-05's evidence and is no
     longer owed. Every other row owed at ST-04's acceptance is still undischarged and owed
-    by the same stage — ST-06, ST-07, ST-08, ST-09, ST-17 — and no ST-05 test declares
-    discharging evidence for any of them."""
+    by the same stage — ST-06, ST-07, ST-08, ST-09, ST-17 — or, once that stage has run,
+    discharged by exactly it; and no ST-05 test declares discharging evidence for any of
+    them."""
     rows = _rows()
     assert rows["AP03-I12"].disposition == DISCHARGED
     assert rows["AP03-I12"].implementing == GPAUTO_STAGE
@@ -262,7 +274,11 @@ def test_ap03_i12_is_discharged_here_and_nothing_owed_later_is_pulled_forward() 
     for element, stage in traceability.OWED_AT_ST04_ACCEPTANCE.items():
         if element == "AP03-I12":
             continue
-        assert rows[element].disposition == UNDISCHARGED, element
-        assert OWED_BY[element][0] == stage, element
         assert not [n for n in evidence.get(element, []) if "st05" in n], element
-    assert traceability.STAGES_RUN[-1] == GPAUTO_STAGE
+        if stage in traceability.STAGES_RUN:
+            assert rows[element].disposition == DISCHARGED, element
+            assert rows[element].implementing == stage, element
+        else:
+            assert rows[element].disposition == UNDISCHARGED, element
+            assert OWED_BY[element][0] == stage, element
+    assert GPAUTO_STAGE in traceability.STAGES_RUN
