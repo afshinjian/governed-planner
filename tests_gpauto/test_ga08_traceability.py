@@ -211,7 +211,6 @@ DEFERRED_CLAUSE_ELEMENTS = {
     # AP03-I19 was owed to GP-AUTO-ST-03 here; ST-03 has run and discharged it with its
     # own evidence, so it is no longer a deferred-clause element (test_ga17).
     "AP03-I24": "GP-AUTO-ST-09",
-    "AP03-I28": "GP-AUTO-ST-08",
 }
 """Invariants whose structural clauses hold here and whose remaining clause does not.
 

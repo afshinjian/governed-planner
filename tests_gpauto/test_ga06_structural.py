@@ -74,6 +74,8 @@ ST06_OPERATION_MODULES = frozenset({"authority.py"})
 envelope derivation (AP-11 §16 ST-06, *Authorized scope*: *"GP-AUTO authority module"*) —
 and no other. Its functions are pinned in `test_ga33`."""
 
+ST08_OPERATION_MODULES = frozenset({"attribution.py"})
+
 ST07_OPERATION_MODULES = frozenset({"observation.py"})
 """The module `GP-AUTO-ST-07` was authorized to add operations in — repository observation and
 the fixed entry boundary (AP-11 §16 ST-07, *Authorized scope*: *"GP-AUTO observation module"*)
@@ -214,6 +216,7 @@ def test_the_package_declares_no_function_at_all() -> None:
             | ST05_OPERATION_MODULES
             | ST06_OPERATION_MODULES
             | ST07_OPERATION_MODULES
+            | ST08_OPERATION_MODULES
         ):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"))

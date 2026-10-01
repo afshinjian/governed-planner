@@ -165,6 +165,7 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from gpauto import (
+    attribution,
     authority,
     codec,
     derivations,
@@ -2788,6 +2789,1368 @@ None selects a record among several: the root's boundary, its baseline and the b
 are selected by tagged filters (`ON-1`, `DC-3`, `CO-1e`)."""
 
 
+# ST-08: seven guards fixed by reconciled plan §11. Earlier inventories are unchanged.
+ST08_GUARDS = (
+    "ga_bracket_exclusivity",
+    "ga_attribution_conjunction",
+    "ga_attribution_defeat",
+    "ga_classification_dispatch",
+    "ga_assessment_once_per_activation",
+    "ga_stratified_assessment",
+    "ga_determination_facts",
+)
+GUARDS.update(
+    {
+        "ga_bracket_exclusivity": Guard("ga_bracket_exclusivity", attribution, "line", ("AT9-1",)),
+        "ga_attribution_conjunction": Guard(
+            "ga_attribution_conjunction", attribution, "line", ("AT9-1b",)
+        ),
+        "ga_attribution_defeat": Guard("ga_attribution_defeat", attribution, "line", ("AT9-1c",)),
+        "ga_classification_dispatch": Guard(
+            "ga_classification_dispatch", attribution, "line", ("DC9-8", "PA9-1")
+        ),
+        "ga_assessment_once_per_activation": Guard(
+            "ga_assessment_once_per_activation", attribution, "line", ("AT9-4",)
+        ),
+        "ga_stratified_assessment": Guard(
+            "ga_stratified_assessment", attribution, "line", ("ST-1", "ST-4")
+        ),
+        "ga_determination_facts": Guard("ga_determination_facts", attribution, "line", ("DC9-17",)),
+    }
+)
+ST08_MUTANTS: tuple[LineMutant, ...] = (
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-1",
+        description="BX-1: observed_quiescent(records, subject.identity) is not True -> False",
+        original="observed_quiescent(records, subject.identity) is not True",
+        replacement="False",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_clo"
+            "sing_bracket_refused_without_observed_quiescence"
+        ),
+    ),
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-2",
+        description="BX-2: return AssessmentCause.WRITE_DOMAIN_NOT_EXCLUSIVE -> return None",
+        original="return AssessmentCause.WRITE_DOMAIN_NOT_EXCLUSIVE",
+        replacement="return None",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_clo"
+            "sing_bracket_refused_while_another_activation_runs"
+        ),
+    ),
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-3",
+        description=(
+            "BX-3: return BracketIndeterminate(AssessmentCause.PREDECESSOR_NOT"
+            "_CLOSED) -> return _observe(records, subject, BracketEnd.OPENING,"
+            " None, reader)"
+        ),
+        original="return BracketIndeterminate(AssessmentCause.PREDECESSOR_NOT_CLOSED)",
+        replacement="return _observe(records, subject, BracketEnd.OPENING, None, reader)",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_ope"
+            "ning_bracket_refused_until_every_predecessor_is_closed_and_quiesc"
+            "ent"
+        ),
+    ),
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-4",
+        description=(
+            "BX-4: return BracketIndeterminate(AssessmentCause.PREDECESSOR_NOT"
+            "_DETERMINED) -> return _observe(records, subject, BracketEnd.OPEN"
+            "ING, None, reader)"
+        ),
+        original="return BracketIndeterminate(AssessmentCause.PREDECESSOR_NOT_DETERMINED)",
+        replacement="return _observe(records, subject, BracketEnd.OPENING, None, reader)",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_ope"
+            "ning_bracket_refused_before_the_previous_determinations_exist"
+        ),
+    ),
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-5",
+        description=(
+            "BX-5: return BracketIndeterminate(AssessmentCause.ENVELOPE_NOT_DE"
+            "RIVED) -> return _observe(records, subject, BracketEnd.OPENING, N"
+            "one, reader)"
+        ),
+        original="return BracketIndeterminate(AssessmentCause.ENVELOPE_NOT_DERIVED)",
+        replacement="return _observe(records, subject, BracketEnd.OPENING, None, reader)",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_ope"
+            "ning_bracket_is_taken_only_before_dispatch"
+        ),
+    ),
+    LineMutant(
+        guard="ga_bracket_exclusivity",
+        identifier="BX-6",
+        description="BX-6: r.observation.quiescence == Quiescence.QUIESCENT -> True",
+        original="r.observation.quiescence == Quiescence.QUIESCENT",
+        replacement="True",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_ind"
+            "eterminate_quiescence_is_never_quiescence"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-1",
+        description="AC-1: writing = bounds.write_mode == WriteMode.WRITING -> writing = True",
+        original="writing = bounds.write_mode == WriteMode.WRITING",
+        replacement="writing = True",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_a_r"
+            "ead_only_envelope_is_never_attributed_an_effect"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-2",
+        description="AC-2: if not contained: -> if False:",
+        original="if not contained:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_an_"
+            "effect_outside_the_write_boundary_is_never_attributed"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-3",
+        description="AC-3: if not exclusive: -> if False:",
+        original="if not exclusive:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_a_s"
+            "econd_writing_activation_over_the_interval_prevents_attribution"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-2-prefix-all",
+        description=(
+            'AC-2-prefix-all: decoded.startswith(token) if token.endswith("/")'
+            " else decoded == token -> decoded.startswith(token)"
+        ),
+        original='decoded.startswith(token) if token.endswith("/") else decoded == token',
+        replacement="decoded.startswith(token)",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_e12"
+            "_directory_prefix_and_exact_path_tokens_are_distinct"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-2-prefix-denied",
+        description=(
+            'AC-2-prefix-denied: decoded.startswith(token) if token.endswith("'
+            '/") else decoded == token -> decoded == token'
+        ),
+        original='decoded.startswith(token) if token.endswith("/") else decoded == token',
+        replacement="decoded == token",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_e12"
+            "_directory_prefix_and_exact_path_tokens_are_distinct"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-4",
+        description=(
+            "AC-4: return NotAssessed(AssessmentCause.OPENING_BRACKET_MISSING) -> return Replayed()"
+        ),
+        original="return NotAssessed(AssessmentCause.OPENING_BRACKET_MISSING)",
+        replacement="return Replayed()",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_a_m"
+            "issing_opening_bracket_fails_closed"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-5",
+        description="AC-5: if mismatch: -> if False:",
+        original="if mismatch:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_a_b"
+            "racket_taken_for_another_activation_is_refused"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-6",
+        description=(
+            "AC-6: _corresponds(e, ingestion, admitted or dv.NoFrozenSet(prior"
+            ".context.authorization)) -> True"
+        ),
+        original="and not all(",
+        replacement="and False and not all(",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_an_"
+            "unaccounted_remediator_effect_is_residue_not_delta"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_conjunction",
+        identifier="AC-7",
+        description="AC-7: and item.obligation in admitted.members -> and True",
+        original="and item.obligation in admitted.members",
+        replacement="and True",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_an_"
+            "item_for_an_unadmitted_obligation_accounts_for_nothing"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-a",
+        description='DF-a: defeats.add("a") -> pass',
+        original='defeats.add("a")',
+        replacement="pass",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_an"
+            "_out_of_boundary_effect_poisons_the_whole_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-b1",
+        description=(
+            'DF-b1: defeats.add("b") -> defeats.update({"b"} if difference.sub'
+            'ject != "index" else set())'
+        ),
+        original='defeats.add("b")',
+        replacement='defeats.update({"b"} if difference.subject != "index" else set())',
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_an"
+            "_index_change_poisons_the_whole_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-b2",
+        description=(
+            'DF-b2: defeats.add("b") -> defeats.update({"b"} if difference.sub'
+            'ject == "index" else set())'
+        ),
+        original='defeats.add("b")',
+        replacement='defeats.update({"b"} if difference.subject == "index" else set())',
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "committed_history_change_poisons_the_whole_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-c",
+        description="DF-c: if not writing: -> if False:",
+        original="if not writing:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "read_only_interval_difference_poisons_the_whole_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-d",
+        description="DF-d: if difference.at_opening: -> if False:",
+        original="if difference.at_opening:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "pre_dispatch_change_poisons_the_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_attribution_defeat",
+        identifier="DF-f",
+        description='DF-f: defeats.add("f") -> pass',
+        original='defeats.add("f")',
+        replacement="pass",
+        killer=(
+            "tests_gpauto/test_ga39_st08_brackets_and_attribution.py::test_one"
+            "_unaccounted_remediator_effect_poisons_the_whole_bracket"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-1",
+        description="CD-1: row = Row.DC9_6 -> continue",
+        original="row = Row.DC9_6",
+        replacement="continue",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_an"
+            "_index_entry_change_is_dc9_6_even_when_the_tree_is_unchanged"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-2",
+        description=(
+            'CD-2: if difference.subject in {"branch", "baseline", "committed-'
+            'history"}: -> if difference.subject in {"baseline", "committed-hi'
+            'story"}:'
+        ),
+        original='if difference.subject in {"branch", "baseline", "committed-history"}:',
+        replacement='if difference.subject in {"baseline", "committed-history"}:',
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "branch_switch_is_dc9_7"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-3",
+        description=(
+            'CD-3: if difference.subject in {"branch", "baseline", "committed-'
+            'history"}: -> if difference.subject == "branch":'
+        ),
+        original='if difference.subject in {"branch", "baseline", "committed-history"}:',
+        replacement='if difference.subject == "branch":',
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "commit_moved_under_the_same_branch_is_dc9_7"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-4",
+        description=(
+            "CD-4: producing_activation=NotObserved(), -> producing_activation"
+            "=Present[WorkerActivationId](value=activation),"
+        ),
+        original="producing_activation=NotObserved(),",
+        replacement="producing_activation=Present[WorkerActivationId](value=activation),",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "committed_history_change_names_no_producer"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-5",
+        description="CD-5: elif defeats: -> elif False:",
+        original="elif defeats:",
+        replacement="elif False:",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_an"
+            "_in_boundary_unattributed_difference_is_dc9_8_never_delta"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-6a",
+        description=(
+            "CD-6a: deliberately manufacture an RC-30 naming the assessed subj"
+            "ect; negative evidence must reject this mutant."
+        ),
+        original="store.create_unit((mutation,))",
+        replacement=(
+            'store.create_unit((mutation, __import__("st08_world").forbidden_m'
+            "utant_violation(store, activation)))"
+        ),
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_dc9"
+            "_4_known_producer_residue_records_no_envelope_violation"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-6b",
+        description=(
+            "CD-6b: producing_activation=NotObserved(), -> producing_activatio"
+            "n=Present[WorkerActivationId](value=activation),"
+        ),
+        original="producing_activation=NotObserved(),",
+        replacement="producing_activation=Present[WorkerActivationId](value=activation),",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_ro"
+            "ws_4_and_5_record_an_unknown_producer_and_no_attribution"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-6c",
+        description=(
+            "CD-6c: if item.row == Row.PENDING: -> if item.row in {Row.PENDING, Row.DC9_8}:"
+        ),
+        original="if item.row == Row.PENDING:",
+        replacement="if item.row in {Row.PENDING, Row.DC9_8}:",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_a_"
+            "defeated_bracket_yields_zero_activation_effects"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-6d-identity",
+        description="CD-6d-identity: row = Row.DC9_7 -> row = Row.DC9_8",
+        original="row = Row.DC9_7",
+        replacement="row = Row.DC9_8",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_de"
+            "feated_bracket_routing_follows_dc9_7_then_dc9_6_then_dc9_8"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-6d-index",
+        description="CD-6d-index: row = Row.DC9_6 -> row = Row.DC9_8",
+        original="row = Row.DC9_6",
+        replacement="row = Row.DC9_8",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_de"
+            "feated_bracket_routing_follows_dc9_7_then_dc9_6_then_dc9_8"
+        ),
+    ),
+    LineMutant(
+        guard="ga_stratified_assessment",
+        identifier="CD-7",
+        description="CD-7: for term in prior.terms: -> for term in ():",
+        original="for term in prior.terms:",
+        replacement="for term in ():",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_pri"
+            "or_authorized_delta_is_not_a_difference"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-8",
+        description=(
+            "CD-8: deliberately manufacture an RC-30 naming the assessed subje"
+            "ct; negative evidence must reject this mutant."
+        ),
+        original="store.create_unit((*effects, *mutations, conformance, residue))",
+        replacement=(
+            'store.create_unit((*effects, *mutations, __import__("st08_world")'
+            ".forbidden_mutant_violation(store, activation), conformance, resi"
+            "due))"
+        ),
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_la"
+            "te_residue_is_never_recorded_as_a_violation_of_the_adopted_activa"
+            "tion"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-9",
+        description=(
+            "CD-9: deliberately manufacture an RC-30 naming the assessed subje"
+            "ct; negative evidence must reject this mutant."
+        ),
+        original="store.create_unit((*effects, *mutations, conformance, residue))",
+        replacement=(
+            'store.create_unit((*effects, *mutations, __import__("st08_world")'
+            ".forbidden_mutant_violation(store, activation), conformance, resi"
+            "due))"
+        ),
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_re"
+            "pository_observation_writes_no_case_b_record"
+        ),
+    ),
+    LineMutant(
+        guard="ga_classification_dispatch",
+        identifier="CD-11",
+        description=(
+            "CD-11: producing_activation=NotObserved(), -> producing_activatio"
+            "n=Present[WorkerActivationId](value=subject.identity),"
+        ),
+        original="producing_activation=NotObserved(),",
+        replacement="producing_activation=Present[WorkerActivationId](value=subject.identity),",
+        killer=(
+            "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_no"
+            "_record_field_role_or_interval_names_a_producer"
+        ),
+    ),
+    LineMutant(
+        guard="ga_assessment_once_per_activation",
+        identifier="ON-1",
+        description="ON-1: if previous is not None: -> if False:",
+        original="if previous is not None:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga42_st08_restart_and_mutation.py::test_a_secon"
+            "d_assessment_reads_nothing_and_returns_the_recorded_determination"
+            "s"
+        ),
+    ),
+    LineMutant(
+        guard="ga_assessment_once_per_activation",
+        identifier="ON-2",
+        description=(
+            "ON-2: store.create_unit((*effects, *mutations, conformance, resid"
+            "ue)) -> store.create_unit((*effects, *mutations)); store.create_u"
+            "nit((conformance, residue))"
+        ),
+        original="store.create_unit((*effects, *mutations, conformance, residue))",
+        replacement=(
+            "store.create_unit((*effects, *mutations)); store.create_unit((conformance, residue))"
+        ),
+        killer=(
+            "tests_gpauto/test_ga42_st08_restart_and_mutation.py::test_the_det"
+            "erminations_are_one_unit"
+        ),
+    ),
+    LineMutant(
+        guard="ga_assessment_once_per_activation",
+        identifier="ON-3",
+        description="ON-3: if same: -> if False:",
+        original="if same:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_non"
+            "_completed_residue_is_recorded_once"
+        ),
+    ),
+    LineMutant(
+        guard="ga_stratified_assessment",
+        identifier="SA-1",
+        description=(
+            "SA-1: expected = _expected(prior) -> expected = {**_expected(prio"
+            "r), **_elements(closing.working_tree)}"
+        ),
+        original="expected = _expected(prior)",
+        replacement="expected = {**_expected(prior), **_elements(closing.working_tree)}",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_a_l"
+            "awful_in_boundary_write_never_self_invalidates"
+        ),
+    ),
+    LineMutant(
+        guard="ga_stratified_assessment",
+        identifier="SA-2",
+        description=(
+            "SA-2: assessable = TERMINAL | {M3Position.ACTIVATION_RUNNING} -> "
+            "assessable = {M3Position.ACTIVATION_RUNNING, M3Position.ACTIVATIO"
+            "N_CLOSED_UNADOPTED}"
+        ),
+        original="assessable = TERMINAL | {M3Position.ACTIVATION_RUNNING}",
+        replacement=(
+            "assessable = {M3Position.ACTIVATION_RUNNING, M3Position.ACTIVATION_CLOSED_UNADOPTED}"
+        ),
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_ass"
+            "essment_never_reads_its_subjects_completion"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-1",
+        description="FA-1: if mutation or violation: -> if violation:",
+        original="if mutation or violation:",
+        replacement="if violation:",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_cp4"
+            "_is_false_when_an_unaccounted_mutation_names_the_activation"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-2",
+        description=("FA-2: if not isinstance(_key(records, activation), Replayed): -> if False:"),
+        original="if not isinstance(_key(records, activation), Replayed):",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_cp4"
+            "_is_absent_before_the_assessment_is_recorded"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-3",
+        description=(
+            "FA-3: r.context.authorization == root for r in _of(records, Unacc"
+            "ountedMutation) -> True for r in _of(records, UnaccountedMutation"
+            ")"
+        ),
+        original="r.context.authorization == root",
+        replacement="True",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_rp1"
+            "_reads_only_this_classification_context"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-4",
+        description=(
+            "FA-4: model.RP_2.name: _truth(not violations) -> model.RP_2.name: model.TRUE"
+        ),
+        original="model.RP_2.name: _truth(not violations)",
+        replacement="model.RP_2.name: model.TRUE",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_rp2"
+            "_fails_on_any_envelope_violation_in_the_epoch"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-5",
+        description=(
+            "FA-5: model.RP_3.name: _truth(isinstance(found[0].event, RefusalI"
+            "d)) -> model.RP_3.name: model.TRUE"
+        ),
+        original="case_a = isinstance(found[0].event, RefusalId)",
+        replacement="case_a = True",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_rp3"
+            "_is_true_only_for_a_case_a_refusal_halt"
+        ),
+    ),
+    LineMutant(
+        guard="ga_determination_facts",
+        identifier="FA-6",
+        description=("FA-6: if {UnaccountedMutation, EnvelopeViolationRecord} & ( -> if set() & ("),
+        original="if {UnaccountedMutation, EnvelopeViolationRecord} & (",
+        replacement="if set() & (",
+        killer=(
+            "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_unr"
+            "eadable_governance_records_supply_no_fact"
+        ),
+    ),
+)
+
+ST08_UNMUTATED_PREDICATES: dict[tuple[str, str], str] = {
+    ("read_records", "passes[0] != passes[1]"): (
+        "Stable two-pass authoritative read; unreadable classes and cha"
+        "nged passes are propagated as indeterminacy."
+    ),
+    ("_bound", ("(records.unreadable | records.unstable) & set(authority.AUTHORITY_INPUTS)")): (
+        "Unreadable authority referents fail closed before calling the ST-07 bound-referent reader."
+    ),
+    ("_key", "needed & (records.unreadable | records.unstable)"): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    (
+        "_key",
+        (
+            "kinds.count(EnvelopeConformanceDetermination) == 1 and kinds.c"
+            "ount(ResidueDetermination) == 1"
+        ),
+    ): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    ("_key", "determinations or effects or named"): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    ("observed_quiescent", "ExecutionObservation in records.unreadable | records.unstable"): (
+        "Unreadable execution observations yield None, never quiescence"
+        ". BX-6 mutates the positive conjunct."
+    ),
+    ("_closing_cause", "(records.unreadable | records.unstable) - {OutcomeIngestionRecord}"): (
+        "Bracket preconditions; BX-1/BX-2/SA-2 mutate their decisions. "
+        "Root and own-envelope filtering implement the bounded 01-A exc"
+        "eption."
+    ),
+    (
+        "_closing_cause",
+        ("not isinstance(position, dv.Occupancy) or position.reached.state not in assessable"),
+    ): (
+        "Bracket preconditions; BX-1/BX-2/SA-2 mutate their decisions. "
+        "Root and own-envelope filtering implement the bounded 01-A exc"
+        "eption."
+    ),
+    ("_observe", "bound is None"): (
+        "Referent or observation failure is propagated without a bracket or any record production."
+    ),
+    ("_observe", "isinstance(found, observation.Indeterminate)"): (
+        "Referent or observation failure is propagated without a bracket or any record production."
+    ),
+    ("take_opening_bracket", "records.unreadable or records.unstable"): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("take_opening_bracket", "subject is None"): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    (
+        "take_opening_bracket",
+        (
+            "not isinstance(position, dv.Occupancy) or position.reached.sta"
+            "te != M3Position.ENVELOPE_DERIVED"
+        ),
+    ): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    (
+        "take_opening_bracket",
+        ("not isinstance(epoch, dv.Occupancy) or epoch.reached.state != subject.target_state"),
+    ): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    (
+        "take_opening_bracket",
+        ("observation.boundary_facts(records, root).get(model.BOUNDARY_FIXED.name) != model.TRUE"),
+    ): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("take_closing_bracket", "subject is None"): (
+        "Missing subject or envelope and rejected closing preconditions"
+        " propagate the enumerated failure before observation."
+    ),
+    ("take_closing_bracket", "closing_cause is not None"): (
+        "Missing subject or envelope and rejected closing preconditions"
+        " propagate the enumerated failure before observation."
+    ),
+    ("take_closing_bracket", "envelope is None"): (
+        "Missing subject or envelope and rejected closing preconditions"
+        " propagate the enumerated failure before observation."
+    ),
+    ("_corresponds", "ingestion is None or not isinstance(admitted, dv.CycleBound)"): (
+        "Missing ingestion/set or an absence element supplies no result"
+        "ing content. AC-6/AC-7 and per-effect negative fixtures exerci"
+        "se these exclusions."
+    ),
+    ("_corresponds", "element.startswith('absent ')"): (
+        "Missing ingestion/set or an absence element supplies no result"
+        "ing content. AC-6/AC-7 and per-effect negative fixtures exerci"
+        "se these exclusions."
+    ),
+    ("_exclusive", "not isinstance(epoch, dv.Occupancy)"): (
+        "Only other activations of this root are tested against predece"
+        "ssor strata, closure and quiescence. AC-3 mutates the combined"
+        " exclusivity result."
+    ),
+    ("_exclusive", "envelope is None or envelope.predecessor_entry not in strata"): (
+        "Only other activations of this root are tested against predece"
+        "ssor strata, closure and quiescence. AC-3 mutates the combined"
+        " exclusivity result."
+    ),
+    ("assess_activation", "opening is None"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "closing is None"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "subject is None"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "cause is not None"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "isinstance(prior, dv.Indeterminate)"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "bound is None or not bound.commits"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "envelope is None"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "envelope.envelope.role == Role.REMEDIATOR"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("record_non_completed_residue", "records.unreadable or records.unstable"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "subject is None"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    (
+        "record_non_completed_residue",
+        (
+            "not isinstance(position, dv.Occupancy) or position.reached.sta"
+            "te != M3Position.ACTIVATION_CLOSED_UNADOPTED"
+        ),
+    ): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "not isinstance(key, Replayed)"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "not elements"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "isinstance(prior, dv.Indeterminate)"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    (
+        "completion_facts",
+        (
+            "{UnaccountedMutation, EnvelopeViolationRecord, ConformanceDete"
+            "rmination} & (records.unreadable | records.unstable)"
+        ),
+    ): (
+        "Unreadable governing classes provide no fact. FA-1/FA-2 test t"
+        "he mutation/violation and determination requirements."
+    ),
+    ("halt_cause_facts", "HaltOccurrence in records.unreadable | records.unstable"): (
+        "Only a uniquely identified readable halt provides RP-3; FA-5 m"
+        "utates the explicit Case-A test."
+    ),
+    ("halt_cause_facts", "len(found) != 1"): (
+        "Only a uniquely identified readable halt provides RP-3; FA-5 m"
+        "utates the explicit Case-A test."
+    ),
+    ("classify_recorded", "records.unreadable or records.unstable"): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    ("read_records", "base.unstable"): (
+        "Stable two-pass authoritative read; unreadable classes and cha"
+        "nged passes are propagated as indeterminacy."
+    ),
+    (
+        "_closing_cause",
+        (
+            "envelope.envelope.resolved_root != subject.resolved_root or en"
+            "velope.envelope.identity == subject.envelope"
+        ),
+    ): (
+        "Bracket preconditions; BX-1/BX-2/SA-2 mutate their decisions. "
+        "Root and own-envelope filtering implement the bounded 01-A exc"
+        "eption."
+    ),
+    (
+        "_closing_cause",
+        (
+            "not isinstance(other, dv.Occupancy) or other.reached.state == "
+            "M3Position.ACTIVATION_RUNNING"
+        ),
+    ): (
+        "Bracket preconditions; BX-1/BX-2/SA-2 mutate their decisions. "
+        "Root and own-envelope filtering implement the bounded 01-A exc"
+        "eption."
+    ),
+    ("take_opening_bracket", "other.envelope.resolved_root == root"): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("take_opening_bracket", "previous.resolved_root != root"): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    (
+        "take_opening_bracket",
+        (
+            "not isinstance(prior, dv.Occupancy) or prior.reached.state not"
+            " in TERMINAL or observed_quiescent(records, previous.identity)"
+            " is not True"
+        ),
+    ): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("take_opening_bracket", "not isinstance(_key(records, previous.identity), Replayed)"): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("within_write_boundary", "matches"): (
+        "Returns the path predicate already mutated by both AC-2-prefix"
+        " mutants; no second authority comparison."
+    ),
+    ("_differences", "values"): (
+        "Exact subject/key comparison against DV-1 or boundary identity"
+        "; presence and absence use the fixed encodings. Unchanged boun"
+        "dary keys alone report DC9-1."
+    ),
+    ("classify", "difference.subject != 'tree'"): (
+        "Subject routing and per-effect correspondence. The tagged bran"
+        "ch contributions or dispatch assignments carry DF-b/CD-1/CD-2/"
+        "CD-3/AC-6 mutations."
+    ),
+    (
+        "classify",
+        (
+            "envelope.envelope.role == Role.REMEDIATOR and (not all((_corre"
+            "sponds(e, ingestion, admitted or dv.NoFrozenSet(prior.context."
+            "authorization)) for e in difference.elements)))"
+        ),
+    ): (
+        "Subject routing and per-effect correspondence. The tagged bran"
+        "ch contributions or dispatch assignments carry DF-b/CD-1/CD-2/"
+        "CD-3/AC-6 mutations."
+    ),
+    (
+        "_exclusive",
+        ("other.resolved_root != subject.resolved_root or other.identity == subject.identity"),
+    ): (
+        "Only other activations of this root are tested against predece"
+        "ssor strata, closure and quiescence. AC-3 mutates the combined"
+        " exclusivity result."
+    ),
+    ("_exclusive", "prior is None or strata.get(prior.predecessor_entry, before) >= before"): (
+        "Only other activations of this root are tested against predece"
+        "ssor strata, closure and quiescence. AC-3 mutates the combined"
+        " exclusivity result."
+    ),
+    (
+        "_exclusive",
+        (
+            "not isinstance(position, dv.Occupancy) or position.reached.sta"
+            "te not in TERMINAL or observed_quiescent(records, other.identi"
+            "ty) is not True"
+        ),
+    ): (
+        "Only other activations of this root are tested against predece"
+        "ssor strata, closure and quiescence. AC-3 mutates the combined"
+        " exclusivity result."
+    ),
+    ("_affected", "envelope.envelope.resolved_root != root"): (
+        "Records affected root envelopes at derived/running positions. "
+        "This membership never supplies producer identity."
+    ),
+    (
+        "_affected",
+        (
+            "isinstance(position, dv.Occupancy) and position.reached.state "
+            "in {M3Position.ENVELOPE_DERIVED, M3Position.ACTIVATION_RUNNING"
+            "}"
+        ),
+    ): (
+        "Records affected root envelopes at derived/running positions. "
+        "This membership never supplies producer identity."
+    ),
+    ("assess_activation", "OutcomeIngestionRecord in records.unreadable | records.unstable"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "len(ingestions) > 1"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("assess_activation", "isinstance(cycle, dv.Indeterminate)"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    (
+        "record_non_completed_residue",
+        ("mutation.producing_activation != Present[WorkerActivationId](value=activation)"),
+    ): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "set(mutation.unexplained_portion) & set(elements)"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("classify_recorded", "subject.resolved_root != root"): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    ("classify_recorded", "not isinstance(key, Replayed)"): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    ("classify_recorded", "not isinstance(position, dv.Occupancy)"): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    (
+        "classify_recorded",
+        (
+            "mutation.context.authorization != root or not isinstance(mutat"
+            "ion.producing_activation, NotObserved)"
+        ),
+    ): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    ("_subject", "r.identity == activation"): (
+        "Exact activation identity and unique cardinality; absent or am"
+        "biguous subject fails closed."
+    ),
+    ("_envelope", "r.envelope.identity == envelope"): (
+        "Exact envelope identity and unique cardinality; absent or ambiguous referent fails closed."
+    ),
+    ("_key", "r.identity.parent_activation == activation"): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    ("_key", ("r.producing_activation == Present[WorkerActivationId](value=activation)")): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    (
+        "take_opening_bracket",
+        (
+            "not isinstance(state, dv.Occupancy) or state.reached.state == "
+            "M3Position.ACTIVATION_RUNNING"
+        ),
+    ): (
+        "Opening preconditions; BX-3/BX-4/BX-5 mutate the tagged reject"
+        "ion returns. Other branches fail closed on missing or unbound "
+        "inputs."
+    ),
+    ("_expected", "element.startswith('absent ')"): (
+        "Absence removes a path instead of assigning a content identity"
+        "; overlay only follows DV-1 stratum order, mutated by CD-7."
+    ),
+    ("classify", "difference.subject == 'index'"): (
+        "Subject routing and per-effect correspondence. The tagged bran"
+        "ch contributions or dispatch assignments carry DF-b/CD-1/CD-2/"
+        "CD-3/AC-6 mutations."
+    ),
+    (
+        "record_non_completed_residue",
+        "isinstance(d.determination, EnvelopeConformanceDetermination)",
+    ): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "i.within_envelope"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("record_non_completed_residue", "r.identity in judgments"): (
+        "Closed-unadopted W only; exact durable producer/context/portio"
+        "n replay key, with overlapping inconsistent portions refused. "
+        "ON-3 mutates the key decision."
+    ),
+    ("halt_cause_facts", "r.identity == halt"): (
+        "Only a uniquely identified readable halt provides RP-3; FA-5 m"
+        "utates the explicit Case-A test."
+    ),
+    (
+        "classify_recorded",
+        ("isinstance(determination.determination, EnvelopeConformanceDetermination)"),
+    ): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+    ("read_records", "isinstance(record, UnreadableRecord)"): (
+        "Stable two-pass authoritative read; unreadable classes and cha"
+        "nged passes are propagated as indeterminacy."
+    ),
+    ("_of", "isinstance(r, kind)"): (
+        "Typed projection of already-decoded records; no producer or ordering choice."
+    ),
+    ("_key", "r.identity.activation == activation"): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    (
+        "_key",
+        ("isinstance(r.determination, (EnvelopeConformanceDetermination, ResidueDetermination))"),
+    ): (
+        "Durable key and class membership: both RC-39 classes or replay"
+        " refusal. ON-1 and partial-set tests cover this selection."
+    ),
+    ("_differences", "key in baseline and (subject == 'index' or key in inherited)"): (
+        "Exact subject/key comparison against DV-1 or boundary identity"
+        "; presence and absence use the fixed encodings. Unchanged boun"
+        "dary keys alone report DC9-1."
+    ),
+    ("assess_activation", "r.activation == activation"): (
+        "Exact subject ingestion and fail-closed input checks before re"
+        "cord production. Missing/mismatched brackets and correspondenc"
+        "e inputs have dedicated negative tests."
+    ),
+    ("_differences", "e not in expected_values"): (
+        "Exact subject/key comparison against DV-1 or boundary identity"
+        "; presence and absence use the fixed encodings. Unchanged boun"
+        "dary keys alone report DC9-1."
+    ),
+    ("_differences", "e != reference"): (
+        "Exact subject/key comparison against DV-1 or boundary identity"
+        "; presence and absence use the fixed encodings. Unchanged boun"
+        "dary keys alone report DC9-1."
+    ),
+    ("classify_recorded", "e.within_envelope"): (
+        "Read-only typed/root projection over determinations and unknow"
+        "n-producer residues. No new producer, record or classification"
+        " context is established."
+    ),
+}
+ST08_KEYED_ACCESSES: dict[tuple[str, str], tuple[int, str, str]] = {
+    ("read_records", "passes[0]"): (
+        2,
+        "non-selection",
+        (
+            "The two fixed read passes compared as complete sets; neither i"
+            "s preferred on disagreement."
+        ),
+    ),
+    ("read_records", "passes[1]"): (
+        1,
+        "non-selection",
+        (
+            "The two fixed read passes compared as complete sets; neither i"
+            "s preferred on disagreement."
+        ),
+    ),
+    ("_subject", "found[0]"): (
+        1,
+        "single-lawful-value",
+        (
+            "Indexed only after exact subject filtering and unique cardinal"
+            "ity checks; otherwise absent/refused."
+        ),
+    ),
+    ("_envelope", "found[0]"): (
+        1,
+        "single-lawful-value",
+        (
+            "Indexed only after exact subject filtering and unique cardinal"
+            "ity checks; otherwise absent/refused."
+        ),
+    ),
+    ("_key", "Present[WorkerActivationId]"): (
+        1,
+        "non-selection",
+        ("Generic record field type specialization, not a runtime choice of evidence."),
+    ),
+    (
+        "take_opening_bracket",
+        ("observation.boundary_facts(records, root).get(model.BOUNDARY_FIXED.name)"),
+    ): (
+        1,
+        "fail-closed",
+        (
+            "Only BOUNDARY_FIXED TRUE admits observation; missing fact reje"
+            "cts before a repository read."
+        ),
+    ),
+    ("_elements", "e.split()[-1]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_elements", "e.split()[2]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_expected", "effect.observed_state[0]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_expected", "element.split()[-1]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_expected", "state[path]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "effect.observed_state[0].split()[-1]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "effect.observed_state[0]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "baseline.get(key, absent)"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "first.get(key, absent)"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "last.get(key, absent)"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_differences", "key.split(':')[0]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_corresponds", "element.split()[2]"): (
+        1,
+        "non-selection",
+        (
+            "Fixed ST-07 element grammar or exact path-key state overlay, n"
+            "ot a choice among producers or records."
+        ),
+    ),
+    ("_exclusive", "strata[envelope.predecessor_entry]"): (
+        1,
+        "fail-closed",
+        (
+            "Envelope predecessor entry indexes DV-6 chain positions; missi"
+            "ng key refuses exclusivity, never supplies a guessed stratum."
+        ),
+    ),
+    ("_exclusive", "strata.get(prior.predecessor_entry, before)"): (
+        1,
+        "fail-closed",
+        (
+            "Envelope predecessor entry indexes DV-6 chain positions; missi"
+            "ng key refuses exclusivity, never supplies a guessed stratum."
+        ),
+    ),
+    ("assess_activation", "ingestions[0]"): (
+        1,
+        "single-lawful-value",
+        (
+            "Indexed only after exact subject filtering and unique cardinal"
+            "ity checks; otherwise absent/refused."
+        ),
+    ),
+    ("assess_activation", "Present[tuple[UnaccountedMutationId, ...]]"): (
+        1,
+        "non-selection",
+        ("Generic record field type specialization, not a runtime choice of evidence."),
+    ),
+    ("assess_activation", "tuple[UnaccountedMutationId, ...]"): (
+        1,
+        "non-selection",
+        ("Generic record field type specialization, not a runtime choice of evidence."),
+    ),
+    ("record_non_completed_residue", "Present[WorkerActivationId]"): (
+        2,
+        "non-selection",
+        ("Generic record field type specialization, not a runtime choice of evidence."),
+    ),
+    ("completion_facts", "Present[WorkerActivationId]"): (
+        1,
+        "non-selection",
+        ("Generic record field type specialization, not a runtime choice of evidence."),
+    ),
+    ("halt_cause_facts", "found[0]"): (
+        1,
+        "single-lawful-value",
+        (
+            "Indexed only after exact subject filtering and unique cardinal"
+            "ity checks; otherwise absent/refused."
+        ),
+    ),
+    (
+        "classify_recorded",
+        (
+            "{M3Position.ACTIVATION_COMPLETED: Row.DC9_2, M3Position.ACTIVA"
+            "TION_CLOSED_UNADOPTED: Row.DC9_4}.get(position.reached.state, "
+            "Row.PENDING)"
+        ),
+    ): (
+        1,
+        "non-selection",
+        (
+            "Frozen element prefix or M3-to-row rendering over the supplied"
+            " records; creates nothing and infers no producer."
+        ),
+    ),
+    ("classify_recorded", "mutation.unexplained_portion[0].split()[0]"): (
+        1,
+        "non-selection",
+        (
+            "Frozen element prefix or M3-to-row rendering over the supplied"
+            " records; creates nothing and infers no producer."
+        ),
+    ),
+    ("classify_recorded", "mutation.unexplained_portion[0]"): (
+        1,
+        "non-selection",
+        (
+            "Frozen element prefix or M3-to-row rendering over the supplied"
+            " records; creates nothing and infers no producer."
+        ),
+    ),
+}
+
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -2938,6 +4301,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
     *ST05_MUTANTS,
     *ST06_MUTANTS,
     *ST07_MUTANTS,
+    *ST08_MUTANTS,
 )
 
 

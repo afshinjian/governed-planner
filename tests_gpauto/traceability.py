@@ -32,6 +32,11 @@ AP-03 invariant carries an implementation obligation somewhere in GP-AUTO and `N
 for *"its behaviour belongs to a later stage"* is the re-disposition `TR11-9` names as
 a defect in the plan's execution.
 
+**Accepted PA03-B qualification.** AP03-I28/AP04-I35/AP04-I22 retain ST-08
+ownership. Every reachable and structural clause plus an executed negative proof
+of the unreachable antecedent is required; positive branch not witnessed. The
+accepted AP-11 amendment qualifies only those elements on repository observation.
+
 **When an element is `discharged` at this stage, exactly.** Per `SG11-9` a stage's
 scope is its own delta and its frozen obligations. An AP-03 invariant is `discharged`
 here only when **every clause of it** is enforced by structure present in this stage's
@@ -97,6 +102,7 @@ STAGES_RUN = (
     "GP-AUTO-ST-05",
     "GP-AUTO-ST-06",
     "GP-AUTO-ST-07",
+    "GP-AUTO-ST-08",
 )
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
@@ -771,6 +777,121 @@ ST07_CONTRACT_OBLIGATIONS: dict[str, str] = {
 """Labels for `GP-AUTO-ST-07`'s own contract rows (AP-11 §16) — as the earlier stages'
 labels, **not** a second normative inventory: the normative rows are parsed above."""
 
+ST08_AP09_ELEMENTS = (
+    "AT9-0",
+    "AT9-1",
+    "AT9-1a",
+    "AT9-1b",
+    "AT9-1c",
+    "AT9-1d",
+    *(f"AT9-{n}" for n in range(2, 10)),
+    *(f"DC9-{n}" for n in range(1, 18)),
+)
+ST08_AP04_ELEMENTS = tuple(f"ST-{n}" for n in range(1, 6))
+ST08_AP09_AMENDMENT = Path("/root/.claude/plans/AP-09-AMENDMENT-ST08-producer-attribution.md")
+ST08_AP09_AMENDMENT_SHA256 = "1b906ad7a5566cfd66d5e650a4dd4eed251183ec40f4f4fdd19d4dac5acda968"
+ST08_AP11_AMENDMENT = Path("/root/.claude/plans/AP-11-AMENDMENT-ST08-PA03-traceability.md")
+ST08_AP11_AMENDMENT_SHA256 = "d3a88232f1ab0b62f5c25e6ce9aedd4c5e8bc9b028aac52770c30b67ddffa86f"
+
+
+def st08_elements() -> dict[str, str]:
+    """Frozen statements retained, with the accepted overlays pinned and consumed."""
+    amendment = verified_text(ST08_AP09_AMENDMENT, ST08_AP09_AMENDMENT_SHA256)
+    verified_text(ST08_AP11_AMENDMENT, ST08_AP11_AMENDMENT_SHA256)
+    rows = {
+        **_state_machine_rows(AP09_PATH, AP09_SHA256, ST08_AP09_ELEMENTS),
+        **_state_machine_rows(AP04_PATH, AP04_SHA256, ST08_AP04_ELEMENTS),
+    }
+    for number in range(1, 5):
+        key = f"PA9-{number}"
+        line = next(line for line in amendment.splitlines() if line.startswith(f"| **`{key}`**"))
+        rows[key] = line
+    for key in ("AT9-0", "AT9-1b", "AT9-1c", "AT9-7", "AT9-8",
+                "DC9-3", "DC9-5", "DC9-8", "DC9-13"):
+        rows[key] += (
+            " Accepted AP-09 §9/§13.3: P implies C; defeated differences have "
+            "unknown producer, no RC-23/RC-30; precedence DC9-9 > DC9-7 > DC9-6 > DC9-8; "
+            "PA9-2 coexistence applies."
+        )
+    for key in ("AT9-1", "AT9-1b"):
+        rows[key] += (
+            " Accepted 01-A bracket-specific amendment: the subject's own closing bracket "
+            "admits RUNNING only with observed physical QUIESCENCE and no other running "
+            "subject. Its authority is unconsumed; PQ-1 and governance closure are unchanged. "
+            "Opening predecessors and terminal late subjects retain closure and quiescence."
+        )
+    rows["AT9-1b"] += (
+        " Accepted 03-B: strict UTF-8; slash-ending tokens are directory prefixes, otherwise "
+        "exact paths, without normalization. Accepted 04-A: per-effect admitted/addressed "
+        "objective lifecycle production with matching resulting ArtifactContent identity; "
+        "no path linkage, whole-outcome shortcut or synthetic deletion identity."
+    )
+    return rows
+
+
+ST08_CONTRACT_OBLIGATIONS = {
+    "ST08-D1": "Three separated determinations.",
+    "ST08-D2": "Full attribution conjunction.",
+    "ST08-D3": "Whole-bracket defeats.",
+    "ST08-D4": "Exhaustive nine-row classification, accepted unreachable rows qualified.",
+    "ST08-D5": "Stratified assessment order.",
+    "ST08-T1": "Every reachable row; DC9-3/DC9-5 negative scenarios.",
+    "ST08-T2": "ST-4 lawful write never self-invalidates.",
+    "ST08-N1": "Each insufficient ground refused, AV11-8.",
+    "ST08-N2": "Each defeat poisons the bracket, AV11-9 as amended.",
+    "ST08-N3": "In-boundary unattributed difference never absorbed, NV11-8.",
+    "ST08-N4": "No actor inference, AV11-12.",
+    "ST08-N5": "Facts read records only, AV11-13.",
+    "ST08-N6": "External in-boundary write indistinguishable, AV11-11.",
+    "ST08-M1": "Each attribution conjunction mutation killed with control.",
+    "ST08-M2": "Each defeat mutation killed with control.",
+    "ST08-M3": "Classification dispatch mutations killed with controls.",
+    "ST08-R1": "Class A durable determinations and recomputed state.",
+    "ST08-G1": "Static gates, provider-free, schema unchanged.",
+    "ST08-A1": "VL11-10 attribution half.",
+    "ST08-B1": "No detection guarantee, interposition, provenance primitive or scanner.",
+}
+
+OWED_AT_ST07_ACCEPTANCE: dict[str, str] = {
+    "AP03-I11": "GP-AUTO-ST-08",
+    "AP03-I24": "GP-AUTO-ST-09",
+    "AP03-I28": "GP-AUTO-ST-08",
+    "AP03-I36": "GP-AUTO-ST-09",
+    "PB-2(ii)": "GP-AUTO-ST-17",
+    "PB-2(iii)": "GP-AUTO-ST-17",
+    "PB-2(v)": "GP-AUTO-ST-17",
+    "AP04-I22": "GP-AUTO-ST-08",
+    "AP04-I25": "GP-AUTO-ST-16",
+    "AP04-I30": "GP-AUTO-ST-09",
+    "AP04-I31": "GP-AUTO-ST-09",
+    "AP04-I32": "GP-AUTO-ST-10",
+    "AP04-I35": "GP-AUTO-ST-08",
+    "AP04-I36": "GP-AUTO-ST-08",
+    "AP04-I45": "GP-AUTO-ST-09",
+    "AP04-I47": "GP-AUTO-ST-09",
+    "AP04-I48": "GP-AUTO-ST-15",
+    "AP04-I49": "GP-AUTO-ST-09",
+    "EV-5": "GP-AUTO-ST-12",
+    "AP04-I50": "GP-AUTO-ST-09",
+    "OB9-3": "GP-AUTO-ST-08",
+    "OB9-5": "GP-AUTO-ST-08",
+    "OB9-9a": "GP-AUTO-ST-08",
+    "OB9-9d": "GP-AUTO-ST-16",
+    "OB9-10": "GP-AUTO-ST-16",
+    "OB9-15": "GP-AUTO-ST-08",
+    "OB9-16": "GP-AUTO-ST-08",
+    "OB9-6": "GP-AUTO-ST-17",
+    "OB9-18": "GP-AUTO-ST-11",
+    "GR9-1": "GP-AUTO-ST-13",
+    "GR9-2": "GP-AUTO-ST-13",
+    "GR9-3": "GP-AUTO-ST-12",
+    "GR9-6": "GP-AUTO-ST-13",
+    "GR9-8": "GP-AUTO-ST-08",
+    "IX-1": "GP-AUTO-ST-08",
+    "IX-1a": "GP-AUTO-ST-08",
+}
+
+
 OWED_AT_ST06_ACCEPTANCE: dict[str, str] = {
     "AP03-I08": "GP-AUTO-ST-07",
     "AP03-I11": "GP-AUTO-ST-08",
@@ -876,25 +997,12 @@ OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
 a row owed then and discharged since can be checked against the stage that owed it."""
 
 OWED_BY: dict[str, tuple[str, str]] = {
-    "AP03-I11": (
-        "GP-AUTO-ST-08",
-        "Non-convertibility is enforced where state is classified, not where it is typed.",
-    ),
     "AP03-I24": (
         "GP-AUTO-ST-09",
         "Closure being per finding and bound to one closure activation is structural and "
         "holds now, in the dependent identity pair. The remaining clause — that closure "
         "scope is a subset of the frozen set's membership — is freeze-and-closure "
         "behaviour, which ST-09 owns.",
-    ),
-    "AP03-I28": (
-        "GP-AUTO-ST-08",
-        "The five facts are five distinct non-convertible types, the case markers are "
-        "pinned and required, and no record recommends a disposition — all structural and "
-        "tested here. The remaining clause is GE-4's coexistence: that one occurrence may "
-        "require several records, and that a known-producer unaccounted mutation is "
-        "recorded as **both** an UnaccountedMutation and an EnvelopeViolation. That is a "
-        "recording behaviour, which ST-08 owns.",
     ),
     "AP03-I36": (
         "GP-AUTO-ST-09",
@@ -923,11 +1031,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "unfixed (SRB11-30). Never N/A.",
     ),
     # --- GP-AUTO-ST-05: AP-04 invariants whose remaining clause is a later stage's act ---
-    "AP04-I22": (
-        "GP-AUTO-ST-08",
-        "A property of governance-event records and their classification, not of an edge "
-        "(as AP03-I28).",
-    ),
     "AP04-I25": (
         "GP-AUTO-ST-16",
         "Within an epoch no concurrency is modelled and K-5/K-10 are checked here; that at "
@@ -949,16 +1052,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "GP-AUTO-ST-10",
         "C6 exists with its three authority-loss alternatives — verified here. That the "
         "outcome is then not adopted in whole or in part is outcome ingestion and adoption.",
-    ),
-    "AP04-I35": (
-        "GP-AUTO-ST-08",
-        "ACTIVATION_COMPLETED has no outgoing edge — verified here. Recording the late "
-        "violation as Case B with its timing is attribution and classification.",
-    ),
-    "AP04-I36": (
-        "GP-AUTO-ST-08",
-        "The stratified completion assessment (AP-04 §5.3.1) is among ST-08's frozen "
-        "inputs; ST-05 reads CP-4 as a supplied fact.",
     ),
     "AP04-I45": (
         "GP-AUTO-ST-09",
@@ -998,23 +1091,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "supplied fact and selects no discharge policy.",
     ),
     # --- GP-AUTO-ST-07: frozen inputs whose remaining clause is a later stage's act ---
-    "OB9-3": (
-        "GP-AUTO-ST-08",
-        "All three identities are recorded at entry: branch and commit by the fixed RC-17 that "
-        "exists only once they matched the bound referents it names (ST07-OWNER-DECISION-01). "
-        "Their comparison at assessment is ST-08's.",
-    ),
-    "OB9-5": (
-        "GP-AUTO-ST-08",
-        "The observation reads only inside the repository boundary; that paths outside it are "
-        "out of scope for delta and drift is classification, which ST-08 owns.",
-    ),
-    "OB9-9a": (
-        "GP-AUTO-ST-08",
-        "The three conditions hold at the entry observation here; the assessment-bracket "
-        "clause of condition (ii) — governance-closed and physically quiescent (PQ-2, K-10) — "
-        "is ST-08's.",
-    ),
     "OB9-9d": (
         "GP-AUTO-ST-16",
         "Nothing of an indeterminate observation becomes authoritative, and it is returned "
@@ -1025,14 +1101,13 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "No boundary is fixed and nothing derivable follows; refuse, halt, record and surface "
         "are the halt unit, which ST-16 wires.",
     ),
-    "OB9-15": (
-        "GP-AUTO-ST-08",
-        "No assessment observation exists yet; that it is never a boundary observation is "
-        "ST-08's determination recording.",
-    ),
     "OB9-16": (
-        "GP-AUTO-ST-08",
-        "No re-observation path exists at all (verified here); divergence is classified by ST-08.",
+        "GP-AUTO-ST-16",
+        "ST-08 records affected envelopes; invalidation, halt and surfacing remain ST-16.",
+    ),
+    "DC9-9": (
+        "GP-AUTO-ST-16",
+        "ST-08 returns enumerated indeterminacy; the halt unit remains ST-16.",
     ),
     "OB9-6": (
         "GP-AUTO-ST-17",
@@ -1061,21 +1136,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
     "GR9-6": (
         "GP-AUTO-ST-13",
         "A reviewing role's own Git reads are its session's, which ST-13 maps.",
-    ),
-    "GR9-8": (
-        "GP-AUTO-ST-08",
-        "The observation writes nothing (verified here); assessing an observed write "
-        "attributable to an observation is classification, which ST-08 owns.",
-    ),
-    "IX-1": (
-        "GP-AUTO-ST-08",
-        "Legacy .coord content is recorded in the fixed boundary as pre-existing entry state "
-        "(verified here); that it is neither stage delta nor drift is ST-08's classification.",
-    ),
-    "IX-1a": (
-        "GP-AUTO-ST-08",
-        "Consequence (i), observation at entry, holds here; the remaining consequences are "
-        "classification and re-determination at assessment, which ST-08 owns.",
     ),
 }
 """For every element not yet discharged: its first executable stage.
@@ -1158,6 +1218,8 @@ def inventory() -> dict[str, str]:
         **st06_elements(),
         **ST06_CONTRACT_OBLIGATIONS,
         **st07_elements(),
+        **st08_elements(),
+        **ST08_CONTRACT_OBLIGATIONS,
         **ST07_CONTRACT_OBLIGATIONS,
     }
 
@@ -1291,6 +1353,43 @@ class Row:
         self.note = note
 
 
+PA03_REQUIRED = {
+    "AP03-I28": (
+        "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_ap03_i28_established_violation_antecedent_is_unreachable_on_repository_observation",
+        "tests_gpauto/test_ga41_st08_stratification_and_facts.py::test_dc9_4_known_producer_residue_records_no_envelope_violation",
+        "tests_gpauto/test_ga43_st08_gates_and_traceability.py::test_conditional_elements_retain_their_structural_clauses",
+        "tests_gpauto/test_ga42_st08_restart_and_mutation.py::test_each_st08_mutant_is_killed_by_its_named_test",
+    ),
+    "AP04-I35": (
+        "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_ap04_i35_late_established_violation_antecedent_is_unreachable_on_repository_observation",
+        "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_late_residue_is_never_recorded_as_a_violation_of_the_adopted_activation",
+        "tests_gpauto/test_ga43_st08_gates_and_traceability.py::test_conditional_elements_retain_their_structural_clauses",
+        "tests_gpauto/test_ga42_st08_restart_and_mutation.py::test_each_st08_mutant_is_killed_by_its_named_test",
+    ),
+    "AP04-I22": (
+        "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_ap04_i22_no_st08_written_case_b_record_exists_on_repository_observation",
+        "tests_gpauto/test_ga40_st08_defeat_and_classification.py::test_repository_observation_writes_no_case_b_record",
+        "tests_gpauto/test_ga43_st08_gates_and_traceability.py::test_conditional_elements_retain_their_structural_clauses",
+        "tests_gpauto/test_ga42_st08_restart_and_mutation.py::test_each_st08_mutant_is_killed_by_its_named_test",
+    ),
+}
+PA03_ANTECEDENTS = {
+    "AP03-I28": "full AT9-1b producer and negative envelope conformance, requiring UM plus EV",
+    "AP04-I35": (
+        "established violation first observed after adoption, requiring late Case B with timing"
+    ),
+    "AP04-I22": "ST-08 production of a Case-B record requiring the explicit not-prevented marker",
+}
+
+
+def pa03_missing_declarations(evidence: dict[str, list[str]]) -> dict[str, tuple[str, ...]]:
+    return {
+        element: tuple(n for n in required if n not in evidence.get(element, []))
+        for element, required in PA03_REQUIRED.items()
+        if any(n not in evidence.get(element, []) for n in required)
+    }
+
+
 def matrix(results: dict[str, bool] | None) -> list[Row]:
     """The matrix, over the frozen inventory and the executed results supplied.
 
@@ -1304,6 +1403,22 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
 
     for element, statement in inventory().items():
         designated = evidence.get(element, [])
+        note = headline(statement)
+        if element == "OB9-9a":
+            note += (
+                " Accepted 01-A: only the subject's own completion-assessment closing "
+                "bracket exempts the RUNNING, physically QUIESCENT subject; no other "
+                "subject may run. PQ-1 and opening/terminal predecessor rules are unchanged."
+            )
+        if element in PA03_REQUIRED:
+            note += (
+                " PA-03-B; ST-08 repository-observation path; antecedent: "
+                + PA03_ANTECEDENTS[element]
+                + "; structural reason: P(N,e) => C(N,e), read-only excludes P; "
+                "positive branch not witnessed; reachable, structural, "
+                "negative and mutation evidence: " + "; ".join(PA03_REQUIRED[element])
+            )
+            designated = list(dict.fromkeys((*designated, *PA03_REQUIRED[element])))
         executed = [
             node_id for node_id in designated if results is not None and results.get(node_id)
         ]
@@ -1314,7 +1429,12 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
             if results is not None and results.get(node_id) is False
         ]
 
-        if designated and not unrun and not failed:
+        if (
+            designated
+            and not unrun
+            and not failed
+            and element not in pa03_missing_declarations(evidence)
+        ):
             stage = evidence_stage(designated)
             rows.append(
                 Row(
@@ -1325,7 +1445,7 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
                     stage,
                     stage,
                     INTEGRATIVE_STAGE,
-                    headline(statement),
+                    note,
                 )
             )
             continue
@@ -1342,7 +1462,7 @@ def matrix(results: dict[str, bool] | None) -> list[Row]:
                     stage,
                     stage,
                     INTEGRATIVE_STAGE,
-                    headline(statement),
+                    note,
                 )
             )
             continue
@@ -1460,7 +1580,7 @@ def main(argv: list[str] | None = None) -> int:
     for element in ("AP03-I12", "AP03-I08"):
         row = by_element[element]
         print(f"{element}: {row.disposition} by {row.implementing}.")
-    print("ST07_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
+    print("ST08_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
     return status
 
 

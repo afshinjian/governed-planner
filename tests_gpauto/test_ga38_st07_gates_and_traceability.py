@@ -750,11 +750,14 @@ def test_every_st07_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
     evidence = traceability.declared_evidence()
     for element, stage in ST07_OWED_LATER.items():
         row = rows[element]
-        assert row.disposition == UNDISCHARGED, element
-        assert OWED_BY[element][0] == stage, element
-        assert row.implementing not in traceability.STAGES_RUN, element
-        assert support.get(element), element
-        assert element not in evidence, element
+        if stage in traceability.STAGES_RUN and element not in OWED_BY:
+            assert row.disposition == DISCHARGED, element
+            assert row.implementing == stage, element
+        else:
+            assert row.disposition == UNDISCHARGED, element
+            assert OWED_BY[element][0] not in traceability.STAGES_RUN, element
+            assert support.get(element), element
+            assert element not in evidence, element
 
 
 @pytest.mark.traces("ST07-A1", "AP03-I08")
@@ -774,13 +777,24 @@ def test_ap03_i08_is_discharged_here_and_nothing_owed_elsewhere_moved() -> None:
         if element == "AP03-I08":
             assert stage == GPAUTO_STAGE
             continue
-        assert rows[element].disposition == UNDISCHARGED, element
-        assert OWED_BY[element][0] == stage, element
+        if stage in traceability.STAGES_RUN:
+            assert rows[element].disposition == DISCHARGED, element
+            assert rows[element].implementing == stage, element
+        else:
+            assert rows[element].disposition == UNDISCHARGED, element
+            assert OWED_BY[element][0] == stage, element
         assert not [n for n in evidence.get(element, []) if "st07" in n], element
-    assert traceability.STAGES_RUN[-1] == GPAUTO_STAGE
+    assert GPAUTO_STAGE in traceability.STAGES_RUN
     undischarged = {e for e, row in rows.items() if row.disposition == UNDISCHARGED}
     assert undischarged == set(OWED_BY)
-    assert len(undischarged) == 20 + len(ST07_OWED_LATER)
+    assert len(traceability.OWED_AT_ST07_ACCEPTANCE) == 20 + len(ST07_OWED_LATER)
+    for element, stage in traceability.OWED_AT_ST07_ACCEPTANCE.items():
+        if stage in traceability.STAGES_RUN and element not in OWED_BY:
+            assert rows[element].disposition == DISCHARGED
+            assert rows[element].implementing == stage
+        else:
+            assert element in undischarged
+            assert OWED_BY[element][0] not in traceability.STAGES_RUN
     for element, (stage, _) in OWED_BY.items():
         assert stage not in traceability.STAGES_RUN, element
     assert traceability.unknown_elements() == []
