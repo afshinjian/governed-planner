@@ -568,6 +568,8 @@ def test_st02_declares_exactly_its_operations_and_none_selects_or_orders() -> No
             continue  # GP-AUTO-ST-05's own operations, pinned by its own gate test
         if path.name in structural.ST06_OPERATION_MODULES:
             continue  # GP-AUTO-ST-06's own operations, pinned by its own gate test
+        if path.name in structural.ST09_OPERATION_MODULES:
+            continue
         if path.name in structural.ST08_OPERATION_MODULES:
             continue
         if path.name in structural.ST07_OPERATION_MODULES:

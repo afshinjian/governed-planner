@@ -103,6 +103,7 @@ STAGES_RUN = (
     "GP-AUTO-ST-06",
     "GP-AUTO-ST-07",
     "GP-AUTO-ST-08",
+    "GP-AUTO-ST-09",
 )
 """The stages whose code and tests this matrix is generated over. A stage outside this
 tuple has not run, so a row naming it as implementing stage must be an owed row."""
@@ -996,19 +997,178 @@ OWED_AT_ST02_ACCEPTANCE: dict[str, str] = {
 """The ST-02 rows owed to a later stage when ST-02 was accepted — a historical record, so
 a row owed then and discharged since can be checked against the stage that owed it."""
 
+OWED_AT_ST08_ACCEPTANCE: dict[str, str] = {
+    "AP03-I24": "GP-AUTO-ST-09",
+    "AP03-I36": "GP-AUTO-ST-09",
+    "PB-2(ii)": "GP-AUTO-ST-17",
+    "PB-2(iii)": "GP-AUTO-ST-17",
+    "PB-2(v)": "GP-AUTO-ST-17",
+    "AP04-I25": "GP-AUTO-ST-16",
+    "AP04-I30": "GP-AUTO-ST-09",
+    "AP04-I31": "GP-AUTO-ST-09",
+    "AP04-I32": "GP-AUTO-ST-10",
+    "AP04-I45": "GP-AUTO-ST-09",
+    "AP04-I47": "GP-AUTO-ST-09",
+    "AP04-I48": "GP-AUTO-ST-15",
+    "AP04-I49": "GP-AUTO-ST-09",
+    "EV-5": "GP-AUTO-ST-12",
+    "AP04-I50": "GP-AUTO-ST-09",
+    "OB9-9d": "GP-AUTO-ST-16",
+    "OB9-10": "GP-AUTO-ST-16",
+    "OB9-16": "GP-AUTO-ST-16",
+    "DC9-9": "GP-AUTO-ST-16",
+    "OB9-6": "GP-AUTO-ST-17",
+    "OB9-18": "GP-AUTO-ST-11",
+    "GR9-1": "GP-AUTO-ST-13",
+    "GR9-2": "GP-AUTO-ST-13",
+    "GR9-3": "GP-AUTO-ST-12",
+    "GR9-6": "GP-AUTO-ST-13",
+}
+"""Immutable ownership facts at the CLOSED ST-08 acceptance (606/581/25/0)."""
+
 OWED_BY: dict[str, tuple[str, str]] = {
-    "AP03-I24": (
-        "GP-AUTO-ST-09",
-        "Closure being per finding and bound to one closure activation is structural and "
-        "holds now, in the dependent identity pair. The remaining clause — that closure "
-        "scope is a subset of the frozen set's membership — is freeze-and-closure "
-        "behaviour, which ST-09 owns.",
+    "RM-1": (
+        "GP-AUTO-ST-11",
+        "Further-attempt recovery and scheduling is ST-11; ST-09 establishes occurrences only.",
     ),
-    "AP03-I36": (
-        "GP-AUTO-ST-09",
-        "'Zero or one set per discovery activation' is freeze behaviour. The three-valued "
-        "distinction between no set, an empty set and not-yet-observed is already "
-        "expressible and is tested here.",
+    "OB-12": (
+        "GP-AUTO-ST-11",
+        (
+            "Reduced-scope recovery and envelope re-derivation is ST-11; ST-09 has no "
+            "recovery act."
+        ),
+    ),
+    "FZ-8": (
+        "GP-AUTO-ST-12",
+        (
+            "One activation per consumed envelope requires ST-12 dispatch; freeze "
+            "uniqueness is support only."
+        ),
+    ),
+    "CL-1": (
+        "GP-AUTO-ST-12",
+        "Fresh separately bounded BCV activation/session requires ST-12 dispatch.",
+    ),
+    "OD-2": (
+        "GP-AUTO-ST-12",
+        (
+            "Dispute member referent capture requires ST-12; schema /4 DisputeItem lacks it"
+            " (FSR-1)."
+        ),
+    ),
+    "BC-4": (
+        "GP-AUTO-ST-12",
+        (
+            "At-most-once activation and non-reuse require ST-12 dispatch; fresh occurrence"
+            " is support."
+        ),
+    ),
+    "BC-8": (
+        "GP-AUTO-ST-12",
+        "Fresh session isolation requires ST-12; ST-09 reads no session state.",
+    ),
+    "CB-8": (
+        "GP-AUTO-ST-12",
+        (
+            "Fresh REMEDIATOR and BCV activation identities and dispatch need ST-12, beyond"
+            " occurrence establishment."
+        ),
+    ),
+    "AP05-I20": (
+        "GP-AUTO-ST-12",
+        (
+            "Fresh separately bounded activation/session requires ST-12; envelope "
+            "derivation is only an antecedent."
+        ),
+    ),
+    "AP05-I31": (
+        "GP-AUTO-ST-12",
+        "Capture separation and worker-authored channel handling require ST-12.",
+    ),
+    "AP05-I32": (
+        "GP-AUTO-ST-12",
+        (
+            "Capture discrepancy determination first executes in ST-12; presentation "
+            "follows in ST-15."
+        ),
+    ),
+    "AP05-I33": (
+        "GP-AUTO-ST-12",
+        "Provider/session continuity and capture isolation require ST-12.",
+    ),
+    "OB-13": (
+        "GP-AUTO-ST-14",
+        "OWNER waiver/deferral binding and application require ST-14; ST-09 reads DV-5.",
+    ),
+    "OD-6": ("GP-AUTO-ST-14", "OWNER decision binding through B13/G6 requires ST-14."),
+    "FZ-16": (
+        "GP-AUTO-ST-15",
+        (
+            "Presenting NO SET distinctly from empty is ST-15; ST-09 facts preserve the "
+            "distinction."
+        ),
+    ),
+    "CL-12": (
+        "GP-AUTO-ST-15",
+        "Per-member closure presentation requires ST-15; ST-09 stores no aggregate.",
+    ),
+    "SC-5": (
+        "GP-AUTO-ST-15",
+        (
+            "Presenting obligated-and-unassessed gaps requires ST-15; exact persistence "
+            "reconciliation is local."
+        ),
+    ),
+    "PF-7": (
+        "GP-AUTO-ST-15",
+        "Candidate presentation at the gate requires ST-15; record-and-carry is local.",
+    ),
+    "AP05-I05": (
+        "GP-AUTO-ST-15",
+        "NO SET versus empty outcome presentation requires ST-15.",
+    ),
+    "AP05-I36": (
+        "GP-AUTO-ST-15",
+        "Late compromise presentation requires ST-15; ST-09 never retracts records.",
+    ),
+    "FZ-14": (
+        "GP-AUTO-ST-16",
+        "Envelope invalidation and K-7 closing/voiding belong to the ST-16 halt unit.",
+    ),
+    "OB-11": (
+        "GP-AUTO-ST-16",
+        (
+            "K-7 halt-unit envelope invalidation requires ST-16; no in-place narrowing "
+            "exists here."
+        ),
+    ),
+    "NF-2": (
+        "GP-AUTO-ST-16",
+        "Refusal record and halt composition require ST-16; ST-09 returns a determination.",
+    ),
+    "OD-1": (
+        "GP-AUTO-ST-16",
+        "Dispute routing and member/category refusal require ST-16; FSR-1 needs ST-12 capture.",
+    ),
+    "OD-3": (
+        "GP-AUTO-ST-16",
+        "Refuse, halt, record and surface composition requires ST-16.",
+    ),
+    "OD-4": (
+        "GP-AUTO-ST-16",
+        "Refusal naming the member and reserved category requires ST-16; FSR-1 remains.",
+    ),
+    "AP05-I26": (
+        "GP-AUTO-ST-16",
+        "Recording the refusal and halt is ST-16; nonconformance determination is local.",
+    ),
+    "AP05-I29": (
+        "GP-AUTO-ST-16",
+        "Member/category refusal and routing require ST-16 after FSR-1 capture.",
+    ),
+    "AP05-I30": (
+        "GP-AUTO-ST-16",
+        "Envelope invalidation after OWNER action requires the ST-16 halt unit.",
     ),
     # --- GP-AUTO-ST-02's AP-07 rows whose remaining clause needs a later operation ---
     # (ID-3/4/5/7/8/14, EQ-7, EQ-9 and RC-21 were owed to ST-03 and are discharged there.)
@@ -1037,45 +1197,15 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "most one epoch per repository is non-terminal is a bound across epochs no ST-05 "
         "guard states (B1's guard is AP-04's), realized by the coordinator (AP-01 §13).",
     ),
-    "AP04-I30": (
-        "GP-AUTO-ST-09",
-        "No edge is triggered by raising a candidate, and no B14 exists — verified here. "
-        "Recording and carrying the candidate to the gate is AP-05's lifecycle.",
-    ),
-    "AP04-I31": (
-        "GP-AUTO-ST-09",
-        "The prefix is acyclic and S4 has one forward inbound edge — verified here. That a "
-        "zero-finding PASS produces a real empty set, and a failed outcome none, is freeze "
-        "behaviour (as AP03-I36).",
-    ),
     "AP04-I32": (
         "GP-AUTO-ST-10",
         "C6 exists with its three authority-loss alternatives — verified here. That the "
         "outcome is then not adopted in whole or in part is outcome ingestion and adoption.",
     ),
-    "AP04-I45": (
-        "GP-AUTO-ST-09",
-        "CE-0d sits in Tier 0 here; that CYCLE_BOUND's domain excludes every post-freeze "
-        "candidate is the cycle lifecycle ST-09 implements.",
-    ),
-    "AP04-I47": (
-        "GP-AUTO-ST-09",
-        "The three budget dispositions route correctly here (exhausted to B8, unavailable "
-        "or indeterminate to neither); the finite budget itself is AP-08 CB-*'s, which "
-        "ST-09 implements.",
-    ),
     "AP04-I48": (
         "GP-AUTO-ST-15",
         "Nothing here writes or removes anything; that every cycle's scope and verdicts "
         "travel to the gate is the gate evidence derivation.",
-    ),
-    "AP04-I49": (
-        "GP-AUTO-ST-09",
-        "Its derivation clause is evidenced by ST-06 (five inputs, no CYCLE_BOUND, identical "
-        "bounds across cycles) and its C2 clause by ST-05, both as support. The remaining "
-        "clause — E-14's bound enforced at adoption, acting outside it the expansion X-08 — "
-        "is the amendment's OP-* cycle lifecycle, which AP-11 §16 lists among ST-09's frozen "
-        "inputs. The start authorization limits ST-06 to the derivation part.",
     ),
     # --- GP-AUTO-ST-06: frozen inputs whose remaining clause is a later stage's act ---
     "EV-5": (
@@ -1084,11 +1214,6 @@ OWED_BY: dict[str, tuple[str, str]] = {
         "ST-12's act, and C2's V-13 guard is ST-05's. ST-06 supports it — each derivation "
         "mints a fresh identity, a replay mints none, and the store refuses a second record "
         "under one identity.",
-    ),
-    "AP04-I50": (
-        "GP-AUTO-ST-09",
-        "The applicable obligation set is AP-05's lifecycle; ST-05 reads CE-4 as a "
-        "supplied fact and selects no discharge policy.",
     ),
     # --- GP-AUTO-ST-07: frozen inputs whose remaining clause is a later stage's act ---
     "OB9-9d": (
@@ -1192,13 +1317,94 @@ def correction_elements() -> dict[str, str]:
     return rows
 
 
+AP05_PATH = Path("/root/.claude/plans/you-are-now-authorized-toasty-quiche.md")
+AP05_SHA256 = "98f28914210401c1b34cb8c601539c78be97a2d0cf0feb0cb65bceb4dfbc5202"
+AP08_PATH = Path("/root/.claude/plans/AP-08-GP-AUTO-001-failure-retry-recovery-model.md")
+AP08_SHA256 = "773bf33f18168f8468b7638f57a25f3abfc53f60890f7b14a29952bd267e1965"
+ST09_AP05_ELEMENTS = tuple(
+    f"{prefix}-{number}"
+    for prefix, count in (
+        ("DO", 18),
+        ("FZ", 22),
+        ("FI", 7),
+        ("OB", 13),
+        ("RM", 14),
+        ("CL", 12),
+        ("SC", 10),
+        ("NF", 6),
+        ("PF", 10),
+        ("OD", 12),
+        ("CY", 27),
+    )
+    for number in range(1, count + 1)
+) + tuple(f"AP05-I{number:02d}" for number in range(1, 49))
+ST09_CYCLE_ELEMENTS = (
+    tuple(f"OP-{n}" for n in range(1, 12))
+    + tuple(f"OP-P{n}" for n in range(1, 7))
+    + tuple(f"BC-{n}" for n in range(1, 16))
+)
+ST09_AP08_ELEMENTS = tuple(f"CB-{n}" for n in range(1, 10))
+
+
+def st09_elements() -> dict[str, str]:
+    """Frozen rows, not transcriptions; exact-one FZ-6 OWNER reading (a) is explicit."""
+    rows = {
+        **_state_machine_rows(AP05_PATH, AP05_SHA256, ST09_AP05_ELEMENTS),
+        **_state_machine_rows(AP04_CYCLE_PATH, AP04_CYCLE_SHA256, ST09_CYCLE_ELEMENTS),
+        **_state_machine_rows(AP08_PATH, AP08_SHA256, ST09_AP08_ELEMENTS),
+    }
+    for element in ("DO-12", "FZ-6"):
+        rows[element] += (
+            " OWNER-accepted ST09-OWNER-DECISION-01 = (a): exactly one objective "
+            "production binds every member; zero or multiple is CONTENT_BINDING_INDETERMINATE."
+        )
+    return rows
+
+
+ST09_CONTRACT_OBLIGATIONS = {
+    "ST09-D1": "Finding per adopted item, born a member",
+    "ST09-D2": "FrozenFindingSet with immutable membership (`FP-17` key)",
+    "ST09-D3": "one obligation per member, none for empty",
+    "ST09-D4": "ClosureAssessment recording, closed two-valued verdict",
+    "ST09-D5": "PostFreezeCandidate record-and-carry",
+    "ST09-D6": "admitted set per occurrence (`CYCLE_BOUND`) and `b15_used`, stored nowhere",
+    "ST09-T1": "freeze from a valid discovery outcome",
+    "ST09-T2": "empty set is a real set",
+    "ST09-T3": "per-member closure",
+    "ST09-T4": "strict intra-epoch shrink by identity",
+    "ST09-T5": "`B15` under Tier-0 pass + Tier-1 true",
+    "ST09-T6": "budget exhaustion ⇒ `B8`",
+    "ST09-N1": "`NO SET` ≠ empty (`FP-1`)",
+    "ST09-N2": "no set from failed/crashed/refused/nonconformant (`FP-2`)",
+    "ST09-N3": "no finding after freeze, no membership mutation (`NV11-4`, `PV11-7`)",
+    "ST09-N4": "candidate never member/obligation",
+    "ST09-N5": "indeterminacy ⇒ does-not-attest",
+    "ST09-N6": "unavailable/indeterminate budget ⇒ `P-04` ⇒ `B9`, never `B8`",
+    "ST09-N7": "cycle failure never `B15`",
+    "ST09-M1": "freeze act",
+    "ST09-M2": "membership immutability incl. schema mutation (`MU11-5`)",
+    "ST09-M3": "scope ⊆ membership",
+    "ST09-M4": "strict shrink",
+    "ST09-M5": "`CE-0a`…`CE-6` each",
+    "ST09-M6": "tier ordering",
+    "ST09-M7": "operational budget",
+    "ST09-R1": "freeze unit whole or none (`CW-15`), Class A",
+    "ST09-R2": "occurrence on entry before derivation/dispatch (`CO-1`, `CW-16`), Class A",
+    "ST09-G1": (
+        "GP-AUTO gates extended (`SD11-12b`), provider-free, schema `/4`, "
+        "import boundary ST-01…ST-05 (`DG11-7`)"
+    ),
+    "ST09-A1": "`VL11-7` met",
+    "ST09-B1": "no semantic assessment, triage/ranking/severity, or second discovery path",
+}
+
 def inventory() -> dict[str, str]:
     """The full in-scope element set, over every stage that has run.
 
     Frozen AP-03 invariants and ST-01's contract rows; frozen AP-07 and AP-11 rows and
     ST-02's contract rows.
     """
-    return {
+    existing = {
         **ap03_invariants(),
         **ST01_CONTRACT_OBLIGATIONS,
         **ap07_elements(),
@@ -1222,6 +1428,11 @@ def inventory() -> dict[str, str]:
         **ST08_CONTRACT_OBLIGATIONS,
         **ST07_CONTRACT_OBLIGATIONS,
     }
+
+    added = {**st09_elements(), **ST09_CONTRACT_OBLIGATIONS}
+    if set(existing) & set(added):
+        raise FrozenSourceError("ST-09 inventory collides with a historical row")
+    return {**existing, **added}
 
 
 def module_stage(path: Path) -> str:
@@ -1569,7 +1780,7 @@ def main(argv: list[str] | None = None) -> int:
     if untraced:
         print(f"\nDEFECT — tests tracing to no element (TR11-7): {untraced}")
         status = 1
-    missing_owed = [row.element for row in undischarged if row.implementing == "<UNRECORDED>"]
+    missing_owed = [row.element for row in undischarged if row.element not in OWED_BY]
     if missing_owed:
         print(f"\nDEFECT — undischarged elements with no first executable stage: {missing_owed}")
         status = 1
@@ -1580,7 +1791,7 @@ def main(argv: list[str] | None = None) -> int:
     for element in ("AP03-I12", "AP03-I08"):
         row = by_element[element]
         print(f"{element}: {row.disposition} by {row.implementing}.")
-    print("ST08_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
+    print("ST09_IMPLEMENTED_PENDING_INDEPENDENT_REVIEW_AND_OWNER_ACCEPTANCE")
     return status
 
 

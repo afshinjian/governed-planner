@@ -253,7 +253,9 @@ def test_every_st05_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
                 assert row.implementing not in traceability.STAGES_RUN, element
             else:
                 assert row.disposition == DISCHARGED, element
-                assert row.implementing == owed_then[element], element
+                assert row.implementing == traceability.OWED_AT_ST06_ACCEPTANCE.get(
+                    element, owed_then[element]
+                ), element
         else:
             assert row.disposition == DISCHARGED, element
             assert row.implementing == row.local_verifying == GPAUTO_STAGE, element

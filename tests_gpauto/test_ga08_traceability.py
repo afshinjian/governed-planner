@@ -207,10 +207,10 @@ def test_a_discharged_row_names_this_stage_and_an_undischarged_row_names_a_later
 # --- D. Deferred clauses --------------------------------------------------------
 
 
-DEFERRED_CLAUSE_ELEMENTS = {
+DEFERRED_CLAUSE_ELEMENTS: dict[str, str] = {
     # AP03-I19 was owed to GP-AUTO-ST-03 here; ST-03 has run and discharged it with its
     # own evidence, so it is no longer a deferred-clause element (test_ga17).
-    "AP03-I24": "GP-AUTO-ST-09",
+    # AP03-I24 was owed to GP-AUTO-ST-09 here; ST-09 has run and discharged it.
 }
 """Invariants whose structural clauses hold here and whose remaining clause does not.
 
@@ -219,19 +219,6 @@ counted as enforcement. Each is `undischarged`, owed by the stage that implement
 operation its remaining clause needs, with its verified structure recorded as support
 so nothing is hidden in either direction.
 """
-
-
-@pytest.mark.traces("ST01-A6")
-@pytest.mark.parametrize(("element", "owed_stage"), sorted(DEFERRED_CLAUSE_ELEMENTS.items()))
-def test_an_invariant_with_a_deferred_clause_is_not_reported_discharged(
-    element: str, owed_stage: str
-) -> None:
-    """Representation present, behaviour owed elsewhere — so: `undischarged`."""
-    row = next(row for row in traceability.matrix(synthetic_results()) if row.element == element)
-    assert row.disposition == UNDISCHARGED
-    assert row.implementing == owed_stage
-    assert element in OWED_BY
-    assert "structure verified here:" in row.detail
 
 
 @pytest.mark.traces("ST01-A6")
@@ -372,11 +359,14 @@ def test_this_stages_own_contract_obligations_all_carry_discharging_evidence() -
 
 
 @pytest.mark.traces("ST01-A6")
-def test_the_generator_reports_a_self_consistent_matrix() -> None:
+def test_the_generator_reports_a_self_consistent_matrix(capsys: pytest.CaptureFixture[str]) -> None:
     """`EV11-7`: regenerable from the recorded inputs.
 
-    The generator's exit status reports **consistency** — inventory parsed, no unknown
-    element, no untraced test, every undischarged element owed somewhere — and never
-    the dispositions themselves, which are a finding to read rather than a gate to pass.
+    Without executed results, every element is undischarged. Elements whose stages
+    have run lack evidence and have no future owner, so the generator reports failure
+    and the missing-evidence diagnostic.
     """
-    assert traceability.main([]) == 0
+    assert traceability.main([]) == 1
+    output = capsys.readouterr().out
+    assert "none supplied — every element is undischarged for missing evidence" in output
+    assert "DEFECT — undischarged elements with no first executable stage:" in output

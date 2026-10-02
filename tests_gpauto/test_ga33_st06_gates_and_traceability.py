@@ -406,11 +406,16 @@ def test_every_st06_row_is_discharged_here_or_owed_by_a_named_later_stage() -> N
     for element in elements:
         row = rows[element]
         if element in owed_later:
-            assert row.disposition == UNDISCHARGED, element
-            assert OWED_BY[element][0] == owed_later[element], element
-            assert row.implementing not in traceability.STAGES_RUN, element
-            assert traceability.declared_support()[element], element
-            assert element not in traceability.declared_evidence(), element
+            stage = owed_later[element]
+            if stage in traceability.STAGES_RUN and element not in OWED_BY:
+                assert row.disposition == DISCHARGED, element
+                assert row.implementing == stage, element
+            else:
+                assert row.disposition == UNDISCHARGED, element
+                assert OWED_BY[element][0] == stage, element
+                assert row.implementing not in traceability.STAGES_RUN, element
+                assert traceability.declared_support()[element], element
+                assert element not in traceability.declared_evidence(), element
         else:
             assert row.disposition == DISCHARGED, element
             assert row.implementing == row.local_verifying == GPAUTO_STAGE, element

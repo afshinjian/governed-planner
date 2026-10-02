@@ -370,7 +370,7 @@ def test_st08_inventory_and_conditional_evidence_are_result_driven(
     assert len(elements) == 40
     assert all("Accepted 01-A" in elements[e] for e in ("AT9-1", "AT9-1b"))
     assert "Accepted 03-B" in elements["AT9-1b"] and "Accepted 04-A" in elements["AT9-1b"]
-    assert len(t.inventory()) == 606
+    assert len(t.inventory()) == 877
     assert not t.unknown_elements() and not t.untraced_tests()
     evidence = t.declared_evidence()
     assert not t.pa03_missing_declarations(evidence)
@@ -387,17 +387,123 @@ def test_st08_inventory_and_conditional_evidence_are_result_driven(
     monkeypatch.setattr(t, "module_stage", lambda path: stages[path])
     # Synthetic result maps test the reporter only; final discharge uses real JUnit.
     results = {node: True for nodes in evidence.values() for node in nodes}
+    new09 = (
+        set(t.ST09_AP05_ELEMENTS)
+        | set(t.ST09_CYCLE_ELEMENTS)
+        | set(t.ST09_AP08_ELEMENTS)
+        | set(t.ST09_CONTRACT_OBLIGATIONS)
+    )
+    historical = set(inventory) - new09
+    assert len(historical) == 606 and len(new09) == 271
+    assert not historical & new09 and historical | new09 == set(inventory)
+    expected_history = {
+        "AP03-I24": "GP-AUTO-ST-09",
+        "AP03-I36": "GP-AUTO-ST-09",
+        "PB-2(ii)": "GP-AUTO-ST-17",
+        "PB-2(iii)": "GP-AUTO-ST-17",
+        "PB-2(v)": "GP-AUTO-ST-17",
+        "AP04-I25": "GP-AUTO-ST-16",
+        "AP04-I30": "GP-AUTO-ST-09",
+        "AP04-I31": "GP-AUTO-ST-09",
+        "AP04-I32": "GP-AUTO-ST-10",
+        "AP04-I45": "GP-AUTO-ST-09",
+        "AP04-I47": "GP-AUTO-ST-09",
+        "AP04-I48": "GP-AUTO-ST-15",
+        "AP04-I49": "GP-AUTO-ST-09",
+        "EV-5": "GP-AUTO-ST-12",
+        "AP04-I50": "GP-AUTO-ST-09",
+        "OB9-9d": "GP-AUTO-ST-16",
+        "OB9-10": "GP-AUTO-ST-16",
+        "OB9-16": "GP-AUTO-ST-16",
+        "DC9-9": "GP-AUTO-ST-16",
+        "OB9-6": "GP-AUTO-ST-17",
+        "OB9-18": "GP-AUTO-ST-11",
+        "GR9-1": "GP-AUTO-ST-13",
+        "GR9-2": "GP-AUTO-ST-13",
+        "GR9-3": "GP-AUTO-ST-12",
+        "GR9-6": "GP-AUTO-ST-13",
+    }
+    assert t.OWED_AT_ST08_ACCEPTANCE == expected_history
+    historical_evidence = {
+        e: [n for n in nodes if stages[REPOSITORY_ROOT / n.split("::")[0]] <= GPAUTO_STAGE]
+        for e, nodes in evidence.items()
+        if e in historical
+    }
+    historical_support = {
+        e: [n for n in nodes if t.module_stage(REPOSITORY_ROOT / n.split("::")[0]) <= GPAUTO_STAGE]
+        for e, nodes in support.items()
+        if e in historical
+    }
+
+    def snapshot() -> None:
+        with monkeypatch.context() as patch:
+            patch.setattr(t, "inventory", lambda: {e: inventory[e] for e in historical})
+            patch.setattr(t, "declared_evidence", lambda: historical_evidence)
+            patch.setattr(t, "declared_support", lambda: historical_support)
+            patch.setattr(
+                t,
+                "OWED_BY",
+                {
+                    e: (stage, "Historical ST-08 acceptance owner")
+                    for e, stage in expected_history.items()
+                },
+            )
+            historical_results = {n: True for nodes in historical_evidence.values() for n in nodes}
+            old = t.matrix(historical_results)
+            assert (
+                len(old),
+                sum(r.disposition == t.DISCHARGED for r in old),
+                sum(r.disposition == t.UNDISCHARGED for r in old),
+                sum(r.disposition == t.NOT_APPLICABLE for r in old),
+            ) == (606, 581, 25, 0)
+            assert {
+                r.element: r.implementing for r in old if r.disposition == t.UNDISCHARGED
+            } == expected_history
+
+    snapshot()
     rows = {r.element: r for r in t.matrix(results)}
-    assert sum(r.disposition == t.DISCHARGED for r in rows.values()) == 581
-    assert sum(r.disposition == t.UNDISCHARGED for r in rows.values()) == 25
+    assert sum(r.disposition == t.DISCHARGED for r in rows.values()) == 831
+    assert sum(r.disposition == t.UNDISCHARGED for r in rows.values()) == 46
     assert not [r for r in rows.values() if r.disposition == "not applicable"]
     assert {e for e, r in rows.items() if r.disposition == t.UNDISCHARGED} == set(t.OWED_BY)
     assert t.OWED_BY["OB9-16"][0] == t.OWED_BY["DC9-9"][0] == "GP-AUTO-ST-16"
     assert "Accepted 01-A" in rows["OB9-9a"].note
-    for element, stage in t.OWED_AT_ST07_ACCEPTANCE.items():
-        if stage != GPAUTO_STAGE:
-            assert t.OWED_BY[element][0] == stage
-            assert rows[element].disposition == t.UNDISCHARGED
+    old_rows = [rows[e] for e in historical]
+    assert (
+        len(old_rows),
+        sum(r.disposition == t.DISCHARGED for r in old_rows),
+        sum(r.disposition == t.UNDISCHARGED for r in old_rows),
+    ) == (606, 589, 17)
+    for accepted in (t.OWED_AT_ST07_ACCEPTANCE, t.OWED_AT_ST08_ACCEPTANCE):
+        for element, stage in accepted.items():
+            if stage in t.STAGES_RUN and element not in t.OWED_BY:
+                assert rows[element].disposition == t.DISCHARGED
+                assert rows[element].implementing == rows[element].local_verifying == stage
+            else:
+                latest_owner = t.OWED_AT_ST08_ACCEPTANCE.get(element, stage)
+                assert t.OWED_BY[element][0] == latest_owner
+                assert rows[element].disposition == t.UNDISCHARGED
+                assert rows[element].implementing == rows[element].local_verifying == latest_owner
+                assert latest_owner not in t.STAGES_RUN
+    for element, stage in expected_history.items():
+        if stage != "GP-AUTO-ST-09":
+            continue
+        nodes = [
+            n for n in evidence[element] if stages[REPOSITORY_ROOT / n.split("::")[0]] == stage
+        ]
+        assert nodes and element not in t.OWED_BY
+        for node in nodes:
+            for value in (None, False):
+                missing = dict(results)
+                if value is None:
+                    missing.pop(node)
+                else:
+                    missing[node] = value
+                assert (
+                    next(r for r in t.matrix(missing) if r.element == element).disposition
+                    == t.UNDISCHARGED
+                )
+        snapshot()
     for element, required in t.PA03_REQUIRED.items():
         assert rows[element].implementing == rows[element].local_verifying == GPAUTO_STAGE
         assert "positive branch not witnessed" in rows[element].note

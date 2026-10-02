@@ -170,6 +170,7 @@ from gpauto import (
     codec,
     derivations,
     equivalence,
+    finding_lifecycle,
     observation,
     state_machine,
     state_machine_model,
@@ -4151,6 +4152,4220 @@ ST08_KEYED_ACCESSES: dict[tuple[str, str], tuple[int, str, str]] = {
 }
 
 
+# ST-09 plan §11.3. Stage prefixes avoid collisions with CLOSED ST-08 FA identifiers.
+ST09_GUARDS = (
+    "ga_freeze_act",
+    "ga_membership_immutability",
+    "ga_closure_scope_within_membership",
+    "ga_strict_shrink",
+    "ga_cycle_facts",
+    "ga_tier_ordering",
+    "ga_cycle_budget",
+    "ga_obligation_admissibility",
+    "ga_lifecycle_once",
+    "ga_outcome_conformance",
+    "ga_candidate_record",
+)
+GUARDS.update(
+    {
+        "ga_freeze_act": Guard("ga_freeze_act", finding_lifecycle, "line", ("FZ-1", "FZ-6")),
+        "ga_membership_immutability": Guard(
+            "ga_membership_immutability", finding_lifecycle, "line/schema", ("AP05-I07",)
+        ),
+        "ga_closure_scope_within_membership": Guard(
+            "ga_closure_scope_within_membership", finding_lifecycle, "line", ("SC-2", "AP03-I24")
+        ),
+        "ga_strict_shrink": Guard("ga_strict_shrink", finding_lifecycle, "line", ("SC-9", "SC-10")),
+        "ga_cycle_facts": Guard("ga_cycle_facts", finding_lifecycle, "line", ("CY-2", "CY-4")),
+        "ga_tier_ordering": Guard("ga_tier_ordering", finding_lifecycle, "line", ("CY-3", "BC-12")),
+        "ga_cycle_budget": Guard("ga_cycle_budget", finding_lifecycle, "line", ("CB-1", "CB-4")),
+        "ga_obligation_admissibility": Guard(
+            "ga_obligation_admissibility", finding_lifecycle, "line", ("OP-8", "RM-7")
+        ),
+        "ga_lifecycle_once": Guard(
+            "ga_lifecycle_once", finding_lifecycle, "line", ("FZ-10", "BC-10")
+        ),
+        "ga_outcome_conformance": Guard(
+            "ga_outcome_conformance", finding_lifecycle, "line", ("DO-1", "RM-5", "SC-6")
+        ),
+        "ga_candidate_record": Guard(
+            "ga_candidate_record", finding_lifecycle, "line", ("PF-1", "PF-3")
+        ),
+    }
+)
+
+
+def _st09_candidate_member_schema() -> type[BaseModel]:
+    from gpauto.identity import FindingId, PostFreezeCandidateId
+    from gpauto.review import FrozenFindingSet
+
+    return create_model(
+        "ST09CandidateMember",
+        __base__=FrozenFindingSet,
+        members=(tuple[FindingId | PostFreezeCandidateId, ...], ...),
+    )
+
+
+ST09_MUTANTS: tuple[LineMutant | SchemaMutant, ...] = (
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-8",
+        description="LO-8: omit competing entries at the semantic predecessor key",
+        original="if e.predecessor == entry.predecessor",
+        replacement="if e == entry",
+        killer=(
+            "tests_gpauto/test_ga47_st09_restart_and_mutation.py"
+            "::test_conflicting_occurrence_entries_refuse_replay"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-9",
+        description="LO-9: omit duplicate establishment references under other predecessors",
+        original="if e.edge in {M2Edge.B6a, M2Edge.B15}",
+        replacement="if e == entry",
+        killer=(
+            "tests_gpauto/test_ga47_st09_restart_and_mutation.py"
+            "::test_conflicting_occurrence_entries_refuse_replay"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-6",
+        description="OC-6: classify unreadable closure inputs as nonconformant",
+        original="if items == LifecycleCause.UNREADABLE_RECORDS:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_unavailable_closure_inputs_remain_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-1",
+        description="FA-1: if completed is not True: -> if False:",
+        original="if completed is not True:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_no_set_from_an_unadop"
+            "ted_or_uncompleted_discovery"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-2",
+        description="FA-2: for _ in outcome.items) -> for _ in outcome.items[:1])",
+        original="for _ in outcome.items)",
+        replacement="for _ in outcome.items[:1])",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_one_finding_is_minted"
+            "_per_item_even_when_identical"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-3",
+        description=(
+            "FA-3: store.create_unit((frozen, *findings, *obligations, entry)) -> "
+            "store.create_unit((frozen, *findings, entry))"
+        ),
+        original="store.create_unit((frozen, *findings, *obligations, entry))",
+        replacement="store.create_unit((frozen, *findings, entry))",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_every_member_has_its_"
+            "obligation_in_the_same_unit"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-4",
+        description=(
+            "FA-4: store.create_unit((frozen, *findings, *obligations, entry)) -> "
+            "store.create_unit((frozen, *findings, *obligations))"
+        ),
+        original="store.create_unit((frozen, *findings, *obligations, entry))",
+        replacement="store.create_unit((frozen, *findings, *obligations))",
+        killer="tests_gpauto/test_ga44_st09_freeze.py::test_the_freeze_unit_carries_its_b5_entry",
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-5",
+        description="FA-5: if len(ingestion.objective_channel) != 1: -> if False:",
+        original="if len(ingestion.objective_channel) != 1:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_finding_content_bindi"
+            "ng_follows_the_selected_rule"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-6",
+        description="FA-6: if not set(upstream) <= UPSTREAM_B5: -> if False:",
+        original="if not set(upstream) <= UPSTREAM_B5:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_upstream_facts_cannot_supply_an_st09_fact"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-7",
+        description=(
+            "FA-7: if isinstance(evaluated, sm.Refused):  # guard:ga_freeze_act -> if "
+            "False:  # guard:ga_freeze_act"
+        ),
+        original="if isinstance(evaluated, sm.Refused):  # guard:ga_freeze_act",
+        replacement="if False:  # guard:ga_freeze_act",
+        killer="tests_gpauto/test_ga44_st09_freeze.py::test_a_refused_b5_writes_nothing",
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-8",
+        description="FA-8: if len(completed) > 1: -> if False:",
+        original="if len(completed) > 1:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_two_completed_discove"
+            "ries_under_one_root_are_inconsistent"
+        ),
+    ),
+    LineMutant(
+        guard="ga_freeze_act",
+        identifier="ST09-FA-9",
+        description=(
+            "FA-9: previous = _freeze_effect(read_lifecycle_records(store), run) -> "
+            "previous = (lambda r: FreezeReplayed(_rows(r, FrozenFindingSet)[0], next(e for"
+            " e in _rows(r, M2PositionEntry) if e.edge == "
+            "M2Edge.B5)))(read_lifecycle_records(store))"
+        ),
+        original="previous = _freeze_effect(read_lifecycle_records(store), run)",
+        replacement=(
+            "previous = (lambda r: FreezeReplayed(_rows(r, FrozenFindingSet)[0], next(e for"
+            " e in _rows(r, M2PositionEntry) if e.edge == "
+            "M2Edge.B5)))(read_lifecycle_records(store))"
+        ),
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_write_refused_freeze_"
+            "requires_the_complete_prior_effect"
+        ),
+    ),
+    LineMutant(
+        guard="ga_membership_immutability",
+        identifier="ST09-MI-1",
+        description="MI-1: if not members_match: -> if False:",
+        original="if not members_match:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_a_replayed_freeze_wit"
+            "h_differing_content_is_a_conflict"
+        ),
+    ),
+    LineMutant(
+        guard="ga_membership_immutability",
+        identifier="ST09-MI-2",
+        description="MI-2: unchanged = unchanged and membership_agrees -> unchanged = unchanged",
+        original="unchanged = unchanged and membership_agrees",
+        replacement="unchanged = unchanged",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_a_finding_outside_mem"
+            "bership_makes_the_set_changed"
+        ),
+    ),
+    LineMutant(
+        guard="ga_membership_immutability",
+        identifier="ST09-MI-4",
+        description="MI-4: unchanged = unchanged and origins_agree -> unchanged = unchanged",
+        original="unchanged = unchanged and origins_agree",
+        replacement="unchanged = unchanged",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_every_member_names_th"
+            "e_set_originating_activation"
+        ),
+    ),
+    LineMutant(
+        guard="ga_closure_scope_within_membership",
+        identifier="ST09-SM-1",
+        description="SM-1: if foreign_member: -> if False:",
+        original="if foreign_member:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_an_assessment_of_a_non_member_is_refused"
+        ),
+    ),
+    LineMutant(
+        guard="ga_closure_scope_within_membership",
+        identifier="ST09-SM-2",
+        description='SM-2: within = _truth(members <= set(frozen.members)) -> within = "TRUE"',
+        original="within = _truth(members <= set(frozen.members))",
+        replacement='within = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_closure_scope_outside_membership_is_false"
+        ),
+    ),
+    LineMutant(
+        guard="ga_strict_shrink",
+        identifier="ST09-SS-1",
+        description="SS-1: if prior.identity == occurrence: -> if False:",
+        original="if prior.identity == occurrence:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_the_admitte"
+            "d_set_of_an_occurrence_subtracts_only_its_predecessors"
+        ),
+    ),
+    LineMutant(
+        guard="ga_strict_shrink",
+        identifier="ST09-SS-2",
+        description=(
+            'SS-2: facts[model.CE_3.name] = _truth(attests) -> facts[model.CE_3.name] = "TRUE"'
+        ),
+        original="facts[model.CE_3.name] = _truth(attests)",
+        replacement='facts[model.CE_3.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_no_cycle_wh"
+            "en_no_member_was_attested_closed"
+        ),
+    ),
+    LineMutant(
+        guard="ga_strict_shrink",
+        identifier="ST09-SS-3",
+        description=(
+            "SS-3: same_scope = scope.members == applicable_members -> same_scope = "
+            "len(scope.members) == len(applicable_members)"
+        ),
+        original="same_scope = scope.members == applicable_members",
+        replacement="same_scope = len(scope.members) == len(applicable_members)",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_equal_si"
+            "zed_but_different_scope_is_not_the_applicable_set"
+        ),
+    ),
+    LineMutant(
+        guard="ga_strict_shrink",
+        identifier="ST09-SS-4",
+        description="SS-4: if force.in_force: -> if True:",
+        original="if force.in_force:",
+        replacement="if True:",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_a_waived_obligation_leaves_the_admitted_set"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0a",
+        description=(
+            "CF-0a: facts[model.CE_0A.name] = _truth(closer is not None) -> "
+            'facts[model.CE_0A.name] = "TRUE"'
+        ),
+        original="facts[model.CE_0A.name] = _truth(closer is not None)",
+        replacement='facts[model.CE_0A.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0a_requi"
+            "res_completed_adopted_closure"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b",
+        description='CF-0b: facts[model.CE_0B.name] = ce0b -> facts[model.CE_0B.name] = "TRUE"',
+        original="facts[model.CE_0B.name] = ce0b",
+        replacement='facts[model.CE_0B.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0b_is_fa"
+            "lse_when_a_component_is_false"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0c",
+        description='CF-0c: facts[model.CE_0C.name] = ce0c -> facts[model.CE_0C.name] = "TRUE"',
+        original="facts[model.CE_0C.name] = ce0c",
+        replacement='facts[model.CE_0C.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0c_is_fa"
+            "lse_when_unaccounted_mutation_is_true"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0d",
+        description=(
+            'CF-0d: facts[model.CE_0D.name] = unchanged -> facts[model.CE_0D.name] = "TRUE"'
+        ),
+        original="facts[model.CE_0D.name] = unchanged",
+        replacement='facts[model.CE_0D.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0d_rejec"
+            "ts_a_changed_frozen_set"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-1",
+        description=(
+            "CF-1: facts[model.CE_1.name] = _truth(nonempty_scope) -> "
+            'facts[model.CE_1.name] = "TRUE"'
+        ),
+        original="facts[model.CE_1.name] = _truth(nonempty_scope)",
+        replacement='facts[model.CE_1.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_1_is_false_for_an_empty_scope"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-2",
+        description=(
+            'CF-2: facts[model.CE_2.name] = _truth(unattested) -> facts[model.CE_2.name] = "TRUE"'
+        ),
+        original="facts[model.CE_2.name] = _truth(unattested)",
+        replacement='facts[model.CE_2.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_2_requir"
+            "es_a_not_closed_member"
+        ),
+    ),
+    LineMutant(
+        guard="ga_strict_shrink",
+        identifier="ST09-CF-3",
+        description=(
+            'CF-3: facts[model.CE_3.name] = _truth(attests) -> facts[model.CE_3.name] = "TRUE"'
+        ),
+        original="facts[model.CE_3.name] = _truth(attests)",
+        replacement='facts[model.CE_3.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_3_requires_a_closed_member"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-4",
+        description=(
+            'CF-4: facts[model.CE_4.name] = _truth(same_scope) -> facts[model.CE_4.name] = "TRUE"'
+        ),
+        original="facts[model.CE_4.name] = _truth(same_scope)",
+        replacement='facts[model.CE_4.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_4_requir"
+            "es_the_complete_admitted_identity_set"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-5",
+        description=(
+            "CF-5: facts[model.CE_5.name] = _truth(bool(next_bound.members)) -> "
+            'facts[model.CE_5.name] = "TRUE"'
+        ),
+        original="facts[model.CE_5.name] = _truth(bool(next_bound.members))",
+        replacement='facts[model.CE_5.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_5_requir"
+            "es_a_nonempty_next_bound"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-6",
+        description=(
+            "CF-6: facts[model.CE_6.name] = _truth(isinstance(budget, BudgetAvailable)) -> "
+            'facts[model.CE_6.name] = "TRUE"'
+        ),
+        original="facts[model.CE_6.name] = _truth(isinstance(budget, BudgetAvailable))",
+        replacement='facts[model.CE_6.name] = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_6_is_fal"
+            "se_when_the_budget_is_exhausted"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-false-live",
+        description=(
+            'CF-0b-false-live: live_component = live.get("M4_LIVE") -> live_component = "TRUE"'
+        ),
+        original='live_component = live.get("M4_LIVE")',
+        replacement='live_component = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0b_is_fa"
+            "lse_when_a_component_is_false"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-absent-live",
+        description=(
+            'CF-0b-absent-live: live_component = live.get("M4_LIVE") -> live_component = '
+            'live.get("M4_LIVE") or "TRUE"'
+        ),
+        original='live_component = live.get("M4_LIVE")',
+        replacement='live_component = live.get("M4_LIVE") or "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_absent_c"
+            "omponent_leaves_ce_0b_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-false-boundary",
+        description=(
+            'CF-0b-false-boundary: boundary_component = upstream.get("BOUNDARY_FIXED") -> '
+            'boundary_component = "TRUE"'
+        ),
+        original='boundary_component = upstream.get("BOUNDARY_FIXED")',
+        replacement='boundary_component = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0b_is_fa"
+            "lse_when_a_component_is_false"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-absent-boundary",
+        description=(
+            'CF-0b-absent-boundary: boundary_component = upstream.get("BOUNDARY_FIXED") -> '
+            'boundary_component = upstream.get("BOUNDARY_FIXED") or "TRUE"'
+        ),
+        original='boundary_component = upstream.get("BOUNDARY_FIXED")',
+        replacement='boundary_component = upstream.get("BOUNDARY_FIXED") or "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_absent_c"
+            "omponent_leaves_ce_0b_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-false-bindings",
+        description=(
+            'CF-0b-false-bindings: bindings_component = upstream.get("BINDINGS_MATCH") -> '
+            'bindings_component = "TRUE"'
+        ),
+        original='bindings_component = upstream.get("BINDINGS_MATCH")',
+        replacement='bindings_component = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0b_is_fa"
+            "lse_when_a_component_is_false"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0b-absent-bindings",
+        description=(
+            'CF-0b-absent-bindings: bindings_component = upstream.get("BINDINGS_MATCH") -> '
+            'bindings_component = upstream.get("BINDINGS_MATCH") or "TRUE"'
+        ),
+        original='bindings_component = upstream.get("BINDINGS_MATCH")',
+        replacement='bindings_component = upstream.get("BINDINGS_MATCH") or "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_absent_c"
+            "omponent_leaves_ce_0b_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0c-ignore-event",
+        description=(
+            'CF-0c-ignore-event: event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event'
+            ' or "") -> event_clear = "TRUE"'
+        ),
+        original='event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event or "")',
+        replacement='event_clear = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0c_is_fa"
+            "lse_when_an_unresolved_event_exists"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0c-absent-event",
+        description=(
+            'CF-0c-absent-event: event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event'
+            ' or "") -> event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event or "") '
+            'or "TRUE"'
+        ),
+        original='event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event or "")',
+        replacement='event_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(event or "") or "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_indeterm"
+            "inate_event_state_leaves_ce_0c_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0c-ignore-um",
+        description=(
+            'CF-0c-ignore-um: um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "") '
+            '-> um_clear = "TRUE"'
+        ),
+        original='um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "")',
+        replacement='um_clear = "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_ce_0c_is_fa"
+            "lse_when_unaccounted_mutation_is_true"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_facts",
+        identifier="ST09-CF-0c-absent-um",
+        description=(
+            'CF-0c-absent-um: um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "") '
+            '-> um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "") or "TRUE"'
+        ),
+        original='um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "")',
+        replacement='um_clear = {"FALSE": "TRUE", "TRUE": "FALSE"}.get(um or "") or "TRUE"',
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_absent_u"
+            "naccounted_mutation_fact_leaves_ce_0c_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_tier_ordering",
+        identifier="ST09-TO-1",
+        description="TO-1: if isinstance(b15, sm.Admitted): -> if True:",
+        original="if isinstance(b15, sm.Admitted):",
+        replacement="if True:",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_tier_0_fa"
+            "ilure_never_writes_b15_or_reports_b8"
+        ),
+    ),
+    LineMutant(
+        guard="ga_tier_ordering",
+        identifier="ST09-TO-2",
+        description="TO-2: if isinstance(b8, sm.Admitted): -> if True:",
+        original="if isinstance(b8, sm.Admitted):",
+        replacement="if True:",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_indeterm"
+            "inate_tier_1_admits_neither_edge"
+        ),
+    ),
+    LineMutant(
+        guard="ga_tier_ordering",
+        identifier="ST09-TO-3",
+        description=(
+            "TO-3: if isinstance(b15, sm.Admitted) and isinstance(b8, sm.Admitted): -> if False:"
+        ),
+        original="if isinstance(b15, sm.Admitted) and isinstance(b8, sm.Admitted):",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_contradicto"
+            "ry_evaluator_results_are_refused_before_writing"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_budget",
+        identifier="ST09-CB-a",
+        description=(
+            "CB-a: used = sum(c.establishing_edge == M2Edge.B15 for c in chain) -> used = 0"
+        ),
+        original="used = sum(c.establishing_edge == M2Edge.B15 for c in chain)",
+        replacement="used = 0",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_committed"
+            "_b15_exhausts_the_budget_to_b8"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_budget",
+        identifier="ST09-CB-b",
+        description="CB-b: return BudgetIndeterminate(chain) -> return BudgetAvailable(0)",
+        original="return BudgetIndeterminate(chain)",
+        replacement="return BudgetAvailable(0)",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_unreadab"
+            "le_or_broken_chain_makes_ce_6_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_budget",
+        identifier="ST09-CB-c",
+        description=(
+            "CB-c: return BudgetIndeterminate(LifecycleCause.BUDGET_INDETERMINATE) -> "
+            "return b15_budget(records, root, FAILURE_POLICY)"
+        ),
+        original="return BudgetIndeterminate(LifecycleCause.BUDGET_INDETERMINATE)",
+        replacement="return b15_budget(records, root, FAILURE_POLICY)",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_an_unavaila"
+            "ble_policy_makes_ce_6_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_cycle_budget",
+        identifier="ST09-CB-d",
+        description=(
+            "CB-d: chain = _occurrence_chain(records, root)  # guard:ga_cycle_budget -> "
+            "chain = tuple(c for c in _rows(records, CycleOccurrence) if "
+            "c.predecessor_entry.epoch_root == root)"
+        ),
+        original="chain = _occurrence_chain(records, root)  # guard:ga_cycle_budget",
+        replacement=(
+            "chain = tuple(c for c in _rows(records, CycleOccurrence) if "
+            "c.predecessor_entry.epoch_root == root)"
+        ),
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_b15_occur"
+            "rence_without_its_entry_is_indeterminate"
+        ),
+    ),
+    LineMutant(
+        guard="ga_obligation_admissibility",
+        identifier="ST09-OA-1",
+        description=(
+            "OA-1: if outside:  # guard:ga_obligation_admissibility OA-1 -> if False:  # "
+            "guard:ga_obligation_admissibility OA-1"
+        ),
+        original="if outside:  # guard:ga_obligation_admissibility OA-1",
+        replacement="if False:  # guard:ga_obligation_admissibility OA-1",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_an_item_outside_the_admitted_set_is_x08"
+        ),
+    ),
+    LineMutant(
+        guard="ga_obligation_admissibility",
+        identifier="ST09-OA-2",
+        description='OA-2: agreement = "EQUAL" if agrees else "UNEQUAL" -> agreement = "EQUAL"',
+        original='agreement = "EQUAL" if agrees else "UNEQUAL"',
+        replacement='agreement = "EQUAL"',
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_c2_8_is_unequal_when_the_package_obligations_differ"
+        ),
+    ),
+    LineMutant(
+        guard="ga_obligation_admissibility",
+        identifier="ST09-OA-3",
+        description=(
+            "OA-3: if outside:  # guard:ga_obligation_admissibility OA-3 -> if False:  # "
+            "guard:ga_obligation_admissibility OA-3"
+        ),
+        original="if outside:  # guard:ga_obligation_admissibility OA-3",
+        replacement="if False:  # guard:ga_obligation_admissibility OA-3",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_a_closure_result_outside_the_admitted_bound_is_refused"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-1",
+        description="LO-1: previous = _freeze_effect(records, run) -> previous = None",
+        original="previous = _freeze_effect(records, run)",
+        replacement="previous = None",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_a_second_freeze_reads"
+            "_the_key_and_mints_nothing"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-2",
+        description=(
+            "LO-2: previous = _occurrence_effect(records, predecessor, M2Edge.B15) -> "
+            "previous = None"
+        ),
+        original="previous = _occurrence_effect(records, predecessor, M2Edge.B15)",
+        replacement="previous = None",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_replayed_"
+            "b15_references_the_existing_occurrence"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-3",
+        description=(
+            "LO-3: if previous:  # guard:ga_lifecycle_once LO-3 -> if False:  # "
+            "guard:ga_lifecycle_once LO-3"
+        ),
+        original="if previous:  # guard:ga_lifecycle_once LO-3",
+        replacement="if False:  # guard:ga_lifecycle_once LO-3",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_assessments_are_recorded_once_per_closure_activation"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-4",
+        description=(
+            "LO-4: if previous:  # guard:ga_lifecycle_once LO-4 -> if False:  # "
+            "guard:ga_lifecycle_once LO-4"
+        ),
+        original="if previous:  # guard:ga_lifecycle_once LO-4",
+        replacement="if False:  # guard:ga_lifecycle_once LO-4",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_candidates_are_recorded_once_per_activation"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-5",
+        description=(
+            "LO-5: previous = _occurrence_effect(records, predecessor, M2Edge.B6a) -> "
+            "previous = None"
+        ),
+        original="previous = _occurrence_effect(records, predecessor, M2Edge.B6a)",
+        replacement="previous = None",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_replayed_"
+            "b6a_after_position_advance_references_the_existing_occurrence"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-6",
+        description=(
+            "LO-6: previous = _occurrence_effect(records, predecessor, M2Edge.B15) -> "
+            "previous = _occurrence_effect(records, predecessor, M2Edge.B15) if "
+            'getattr(dv.derive_m2_position(records, root), "reached", None) == predecessor '
+            "else None"
+        ),
+        original="previous = _occurrence_effect(records, predecessor, M2Edge.B15)",
+        replacement=(
+            "previous = _occurrence_effect(records, predecessor, M2Edge.B15) if "
+            'getattr(dv.derive_m2_position(records, root), "reached", None) == predecessor '
+            "else None"
+        ),
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_replayed_"
+            "b15_after_position_advance_references_the_existing_occurrence"
+        ),
+    ),
+    LineMutant(
+        guard="ga_lifecycle_once",
+        identifier="ST09-LO-7",
+        description="LO-7: if not valid: -> if False:",
+        original="if not valid:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga47_st09_restart_and_mutation.py::test_an_occu"
+            "rrence_replay_requires_the_complete_effect"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-1",
+        description="OC-1: if not consistent: -> if False:",
+        original="if not consistent:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_verdict_and_items_inc"
+            "onsistent_never_freeze"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-2",
+        description="OC-2: if not dispositions_complete: -> if False:",
+        original="if not dispositions_complete:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_a_missing_disposition_item_is_nonconformant"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-3",
+        description="OC-3: if not remediation_classes: -> if False:",
+        original="if not remediation_classes:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_a_finding_item_after_the_freeze_is_never_a_finding"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-4",
+        description="OC-4: if not discovery_classes: -> if False:",
+        original="if not discovery_classes:",
+        replacement="if False:",
+        killer=(
+            "tests_gpauto/test_ga44_st09_freeze.py::test_a_discovery_outcome_a"
+            "sserting_a_disposition_is_nonconformant"
+        ),
+    ),
+    LineMutant(
+        guard="ga_outcome_conformance",
+        identifier="ST09-OC-5",
+        description="OC-5: if not effect_equal: -> if not assessments and items:",
+        original="if not effect_equal:",
+        replacement="if not assessments and items:",
+        killer=(
+            "tests_gpauto/test_ga46_st09_cycle_and_budget.py::test_a_persisted"
+            "_partial_assessment_effect_cannot_route"
+        ),
+    ),
+    LineMutant(
+        guard="ga_candidate_record",
+        identifier="ST09-PC-1",
+        description=(
+            "PC-1: if state is not True:  # guard:ga_candidate_record -> if False:  # "
+            "guard:ga_candidate_record"
+        ),
+        original="if state is not True:  # guard:ga_candidate_record",
+        replacement="if False:  # guard:ga_candidate_record",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_no_candidate_is_recorded_from_an_unadopted_outcome"
+        ),
+    ),
+    LineMutant(
+        guard="ga_candidate_record",
+        identifier="ST09-PC-2",
+        description=(
+            "PC-2: store.create_unit(candidates) -> store.create_unit((*candidates, ingestion))"
+        ),
+        original="store.create_unit(candidates)",
+        replacement="store.create_unit((*candidates, ingestion))",
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_raising_a_candidate_writes_only_candidates"
+        ),
+    ),
+    SchemaMutant(
+        guard="ga_membership_immutability",
+        identifier="ST09-MI-3",
+        description="MI-3: FrozenFindingSet.members accepts PostFreezeCandidateId",
+        target="FrozenFindingSet",
+        build=_st09_candidate_member_schema,
+        killer=(
+            "tests_gpauto/test_ga45_st09_obligations_closure_and_candidates.py"
+            "::test_a_candidate_identity_is_never_a_member"
+        ),
+    ),
+)
+
+# Explicit ST-09 exception inventory. Keys are pinned; the AST gate rejects drift.
+ST09_UNMUTATED_PREDICATES: dict[tuple[str, str], str] = {
+    (
+        "_occurrence_effect",
+        (
+            "[e for e in _rows(records, M2PositionEntry) if e.edge in {M2Edge.B6a, M2Edge"
+            ".B15} and e.cycle_occurrence == Present[CycleOccurrenceId](value=occurrence."
+            "identity)] == [entry]"
+        ),
+    ): (
+        "Complete-effect conjunction covered by LO-7, LO-8 and LO-9; conflicting succ"
+        "essors and duplicate establishment references refuse, while later B7/B9 refe"
+        "rences replay."
+    ),
+    (
+        "_occurrence_effect",
+        (
+            "[e for e in _rows(records, M2PositionEntry) if e.predecessor == entry.predec"
+            "essor] == [entry]"
+        ),
+    ): (
+        "Complete-effect conjunction covered by LO-7, LO-8 and LO-9; conflicting succ"
+        "essors and duplicate establishment references refuse, while later B7/B9 refe"
+        "rences replay."
+    ),
+    (
+        "_occurrence_effect",
+        ("e.cycle_occurrence == Present[CycleOccurrenceId](value=occurrence.identity)"),
+    ): (
+        "Complete-effect conjunction covered by LO-7, LO-8 and LO-9; conflicting succ"
+        "essors and duplicate establishment references refuse, while later B7/B9 refe"
+        "rences replay."
+    ),
+    (
+        "_occurrence_effect",
+        (
+            "occurrence.establishing_edge == edge and occurrence.predecessor_closure_acti"
+            "vation == closure and (occurrence.envelope == ABSENT) and (occurrence.activa"
+            "tion == ABSENT) and (entry.identity.epoch_root == predecessor.identity.epoch"
+            "_root) and (entry.edge == edge) and (entry.state == M2Position.S6_REMEDIATIO"
+            "N_ACTIVE) and (entry.cycle_occurrence == Present[CycleOccurrenceId](value=oc"
+            "currence.identity)) and ([e for e in _rows(records, M2PositionEntry) if e.pr"
+            "edecessor == entry.predecessor] == [entry]) and ([e for e in _rows(records, "
+            "M2PositionEntry) if e.edge in {M2Edge.B6a, M2Edge.B15} and e.cycle_occurrenc"
+            "e == Present[CycleOccurrenceId](value=occurrence.identity)] == [entry])"
+        ),
+    ): (
+        "Complete-effect conjunction covered by LO-7, LO-8 and LO-9; conflicting succ"
+        "essors and duplicate establishment references refuse, while later B7/B9 refe"
+        "rences replay."
+    ),
+    (
+        "_activation",
+        "_unreadable(records, WorkerActivationRecord, AuthorityEnvelopeRecord)",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "a.envelope == run.envelope",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "e.envelope.identity == run.envelope",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "envelope.cycle_occurrence != run.cycle_occurrence",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "envelope.envelope.resolved_root != run.resolved_root",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        (
+            "envelope.envelope.resolved_root != run.resolved_root or envelope."
+            "envelope.stage != run.stage or envelope.envelope.role != run.role"
+            " or (envelope.cycle_occurrence != run.cycle_occurrence)"
+        ),
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "envelope.envelope.role != run.role",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "envelope.envelope.stage != run.stage",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        (
+            "len([a for a in _rows(records, WorkerActivationRecord) if a.envel"
+            "ope == run.envelope]) != 1"
+        ),
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "len(envelopes) != 1",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "len(runs) != 1",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "not runs",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_activation",
+        "r.identity == identity",
+    ): (
+        "Exact subject and envelope correlation prerequisite; no candidate"
+        " or latest-record choice is made."
+    ),
+    (
+        "_assessment_effect",
+        "_unreadable(records, ClosureAssessmentRecord, OutcomeIngestionRecord, FrozenFindingSet)",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "actual == expected",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        (
+            "any((r.cycle_occurrence == bound and r.assessment.identity.closur"
+            "e_activation != run.identity for r in _rows(records, ClosureAsses"
+            "smentRecord)))"
+        ),
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "isinstance(items, LifecycleCause)",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "len(assessments) == len(items)",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        (
+            "len(assessments) == len(items) and actual == expected and all((r."
+            "cycle_occurrence == bound for r in assessments))"
+        ),
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "not assessments",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "not assessments and items",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "r.assessment.identity.closure_activation != run.identity",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "r.assessment.identity.closure_activation == run.identity",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "r.cycle_occurrence == bound",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_assessment_effect",
+        "r.cycle_occurrence == bound and r.assessment.identity.closure_activation != run.identity",
+    ): (
+        "Exact occurrence/closer/cardinality/verdict prerequisites; OC-5 t"
+        "argets effect equality and ga46 covers each corruption."
+    ),
+    (
+        "_closer",
+        "_completed(records, completed[0]) is True",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        (
+            "_unreadable(records, WorkerActivationRecord, AuthorityEnvelopeRec"
+            "ord, M3PositionEntry, ConformanceDetermination)"
+        ),
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "completed and _completed(records, completed[0]) is True",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "isinstance(checked, LifecycleCause)",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "isinstance(state, LifecycleCause)",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "len(runs) > 1",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "role == Role.BOUNDED_CLOSURE_VERIFIER",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "run.cycle_occurrence != Present[CycleOccurrenceId](value=occurrence.identity)",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        (
+            "run.cycle_occurrence != Present[CycleOccurrenceId](value=occurren"
+            "ce.identity) or run.role != role"
+        ),
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "run.resolved_root != occurrence.predecessor_entry.epoch_root",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "run.role != role",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closer",
+        "state",
+    ): (
+        "Role/occurrence correlation and independent completion cardinalit"
+        "y; duplicated role identities are refused in ga46."
+    ),
+    (
+        "_closure_history_integrity",
+        "_closer(records, occurrence) != run",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "effect",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "isinstance(chain, LifecycleCause)",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "isinstance(occurrence, LifecycleCause)",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "isinstance(state, LifecycleCause)",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "not isinstance(run.cycle_occurrence, Present)",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "not state",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "occurrence not in chain",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "occurrence not in chain or _closer(records, occurrence) != run",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "run.resolved_root != root",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "run.resolved_root != root or run.role != Role.BOUNDED_CLOSURE_VERIFIER",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_history_integrity",
+        "run.role != Role.BOUNDED_CLOSURE_VERIFIER",
+    ): (
+        "Reconcile every completed adopted closure DV-3 can consume; ga46 "
+        "witnesses orphan and incompatible history."
+    ),
+    (
+        "_closure_items",
+        "i.member not in frozen.members",
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        "isinstance(frozen, LifecycleCause)",
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        "isinstance(i, MemberClosureResultItem)",
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        "isinstance(ingestion, LifecycleCause)",
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        "len(items) != len({i.member for i in items})",
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        (
+            "not any((not isinstance(i, MemberClosureResultItem | DisputeItem "
+            "| PostFreezeCandidateItem | WorkerRefusalOrExpansionItem) for i i"
+            "n ingestion.items))"
+        ),
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_closure_items",
+        (
+            "not isinstance(i, MemberClosureResultItem | DisputeItem | PostFre"
+            "ezeCandidateItem | WorkerRefusalOrExpansionItem)"
+        ),
+    ): (
+        "Typed result/member/duplicate-item projection; SM-1, OA-3 and OC-"
+        "3 protect the respective boundaries."
+    ),
+    (
+        "_completed",
+        "_unreadable(records, M3PositionEntry, ConformanceDetermination)",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "adopted or not adoption",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "completed and (adopted or not adoption)",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "isinstance(position, dv.Indeterminate)",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        (
+            "isinstance(position, dv.Occupancy) and position.reached.state == "
+            "M3Position.ACTIVATION_COMPLETED and (position.reached.edge == M3E"
+            "dge.C4)"
+        ),
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "not adoption",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "position.reached.edge == M3Edge.C4",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "position.reached.state == M3Position.ACTIVATION_COMPLETED",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        "r.identity.activation == run.identity",
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_completed",
+        (
+            "r.identity.activation == run.identity and isinstance(r.determinat"
+            "ion, AdoptionDetermination)"
+        ),
+    ): (
+        "M3 C4 and adoption record prerequisites; FA-1 and CE-0a cover the"
+        "ir lifecycle consequences."
+    ),
+    (
+        "_conjunction",
+        "'FALSE' in components",
+    ): (
+        "Three-valued fact composition; CF-0b and CF-0c each exercise fals"
+        "e and absent component behavior."
+    ),
+    (
+        "_conjunction",
+        "all((c == 'TRUE' for c in components))",
+    ): (
+        "Three-valued fact composition; CF-0b and CF-0c each exercise fals"
+        "e and absent component behavior."
+    ),
+    (
+        "_conjunction",
+        "c == 'TRUE'",
+    ): (
+        "Three-valued fact composition; CF-0b and CF-0c each exercise fals"
+        "e and absent component behavior."
+    ),
+    (
+        "_discovery_bound",
+        (
+            "_unreadable(records, WorkerActivationRecord, AuthorityEnvelopeRec"
+            "ord, M3PositionEntry, ConformanceDetermination)"
+        ),
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "e.envelope.identity == run.envelope",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "envelopes[0].target_state != M2Position.S4_DISCOVERY_ACTIVE",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "isinstance(checked, LifecycleCause)",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "isinstance(state, LifecycleCause)",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "run.resolved_root != root",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "run.resolved_root != root or run.role != Role.DISCOVERY_REVIEWER",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "run.role != Role.DISCOVERY_REVIEWER",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_discovery_bound",
+        "state",
+    ): "Independent root/role/completion projection before the FA-8 identity-count guard.",
+    (
+        "_establish",
+        "closer",
+    ): (
+        "Atomic pair construction and complete post-refusal predecessor/ef"
+        "fect reread; ga47 witnesses crash and corrupt windows."
+    ),
+    (
+        "_establish",
+        "effect or LifecycleCause.WRITE_REFUSED",
+    ): (
+        "Atomic pair construction and complete post-refusal predecessor/ef"
+        "fect reread; ga47 witnesses crash and corrupt windows."
+    ),
+    (
+        "_establish",
+        "named != predecessor",
+    ): (
+        "Atomic pair construction and complete post-refusal predecessor/ef"
+        "fect reread; ga47 witnesses crash and corrupt windows."
+    ),
+    (
+        "_establish",
+        "named == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Atomic pair construction and complete post-refusal predecessor/ef"
+        "fect reread; ga47 witnesses crash and corrupt windows."
+    ),
+    (
+        "_freeze_effect",
+        "_completed(records, run) is not True",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        (
+            "_unreadable(records, FrozenFindingSet, FindingRecord, Remediation"
+            "Obligation, M2PositionEntry, WorkerActivationRecord, AuthorityEnv"
+            "elopeRecord, M3PositionEntry, ConformanceDetermination, OutcomeIn"
+            "gestionRecord)"
+        ),
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "any((f.content_binding != outcome.binding_source for f in findings))",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "e.edge == M2Edge.B5",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "e.identity == entry.predecessor.value",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "e.identity.epoch_root == run.resolved_root",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "e.identity.epoch_root == run.resolved_root and e.edge == M2Edge.B5",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "entries or findings or orphan_obligation",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "entry.cycle_occurrence != ABSENT",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "entry.state != M2Position.S5_FINDING_SET_FROZEN",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "f.content_binding != outcome.binding_source",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "f.finding.originating_authorization == run.resolved_root",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "frozen.originating_activation != run.identity",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "frozen.originating_activation != run.identity or frozen.stage != run.stage",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "frozen.stage != run.stage",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "isinstance(entry.predecessor, Present) and e.identity == entry.predecessor.value",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        (
+            "isinstance(outcome, LifecycleIndeterminate) and outcome.cause == "
+            "LifecycleCause.UNREADABLE_RECORDS"
+        ),
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "len(entries) != 1",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "len(frozen.members) == len(outcome.items)",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        (
+            "len(frozen.members) == len(outcome.items) and membership_facts(re"
+            "cords, run.resolved_root).get('FROZEN_SET_UNCHANGED') == 'TRUE'"
+        ),
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "len(predecessors) != 1",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        (
+            "len(predecessors) != 1 or predecessors[0].state != M2Position.S4_"
+            "DISCOVERY_ACTIVE or predecessors[0].identity.epoch_root != run.re"
+            "solved_root or (entry.state != M2Position.S5_FINDING_SET_FROZEN) "
+            "or (entry.cycle_occurrence != ABSENT)"
+        ),
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "len(sets) != 1",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "membership_facts(records, run.resolved_root).get('FROZEN_SET_UNCHANGED') == 'TRUE'",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "not isinstance(outcome, DiscoveryOutcome)",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "not isinstance(outcome, DiscoveryOutcome) or _completed(records, run) is not True",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "not sets",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "o.identity.parent_frozen_set not in set_ids",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "outcome.cause == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "predecessors[0].identity.epoch_root != run.resolved_root",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "predecessors[0].state != M2Position.S4_DISCOVERY_ACTIVE",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_freeze_effect",
+        "s.resolved_root == run.resolved_root",
+    ): (
+        "Complete same-key replay integrity and orphan/torn-effect dispatc"
+        "h, witnessed on both normal and WriteRefused paths."
+    ),
+    (
+        "_frozen",
+        "_unreadable(records, FrozenFindingSet)",
+    ): (
+        "Exactly one root-keyed set or an enumerated absent/inconsistent r"
+        "esult; no selection fallback."
+    ),
+    (
+        "_frozen",
+        "len(sets) != 1",
+    ): (
+        "Exactly one root-keyed set or an enumerated absent/inconsistent r"
+        "esult; no selection fallback."
+    ),
+    (
+        "_frozen",
+        "not sets",
+    ): (
+        "Exactly one root-keyed set or an enumerated absent/inconsistent r"
+        "esult; no selection fallback."
+    ),
+    (
+        "_frozen",
+        "s.resolved_root == root",
+    ): (
+        "Exactly one root-keyed set or an enumerated absent/inconsistent r"
+        "esult; no selection fallback."
+    ),
+    (
+        "_ingestion",
+        "_unreadable(records, OutcomeIngestionRecord)",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "c.activation != Present[WorkerActivationId](value=run.identity)",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "c.cycle_occurrence != run.cycle_occurrence",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "c.envelope != run.envelope",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "c.root != run.resolved_root",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        (
+            "c.root != run.resolved_root or c.stage != run.stage or c.envelope"
+            " != run.envelope or (c.activation != Present[WorkerActivationId]("
+            "value=run.identity)) or (c.cycle_occurrence != run.cycle_occurren"
+            "ce)"
+        ),
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "c.stage != run.stage",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "len(items) != 1",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "not items",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_ingestion",
+        "r.activation == run.identity",
+    ): (
+        "Exact authoritative ingestion correlation/cardinality prerequisit"
+        "es, never a choice among outcomes."
+    ),
+    (
+        "_live_facts",
+        "isinstance(live, dv.Liveness)",
+    ): (
+        "Agreement of ST-04 M4 position and liveness, never defaulting abs"
+        "ence; CF-0b/0c exercise each result."
+    ),
+    (
+        "_live_facts",
+        "isinstance(position, dv.Unoccupied)",
+    ): (
+        "Agreement of ST-04 M4 position and liveness, never defaulting abs"
+        "ence; CF-0b/0c exercise each result."
+    ),
+    (
+        "_live_facts",
+        "live.live == (state == AuthorizationDisposition.LIVE)",
+    ): (
+        "Agreement of ST-04 M4 position and liveness, never defaulting abs"
+        "ence; CF-0b/0c exercise each result."
+    ),
+    (
+        "_live_facts",
+        "not isinstance(position, dv.Indeterminate)",
+    ): (
+        "Agreement of ST-04 M4 position and liveness, never defaulting abs"
+        "ence; CF-0b/0c exercise each result."
+    ),
+    (
+        "_live_facts",
+        "state == AuthorizationDisposition.LIVE",
+    ): (
+        "Agreement of ST-04 M4 position and liveness, never defaulting abs"
+        "ence; CF-0b/0c exercise each result."
+    ),
+    (
+        "_occurrence",
+        "_unreadable(records, CycleOccurrence)",
+    ): (
+        "Exactly one occurrence identity and readable class prerequisite; "
+        "no derived or synthetic occurrence."
+    ),
+    (
+        "_occurrence",
+        "c.identity == identity",
+    ): (
+        "Exactly one occurrence identity and readable class prerequisite; "
+        "no derived or synthetic occurrence."
+    ),
+    (
+        "_occurrence",
+        "len(found) != 1",
+    ): (
+        "Exactly one occurrence identity and readable class prerequisite; "
+        "no derived or synthetic occurrence."
+    ),
+    (
+        "_occurrence_chain",
+        "_unreadable(records, CycleOccurrence, M2PositionEntry)",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "c.establishing_edge == M2Edge.B15",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        (
+            "c.establishing_edge == M2Edge.B15 and any((e.identity == c.predec"
+            "essor_entry and e.cycle_occurrence == Present[CycleOccurrenceId]("
+            "value=current.identity) for e in _rows(records, M2PositionEntry))"
+            ")"
+        ),
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "c.establishing_edge == M2Edge.B6a",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "c.predecessor_entry.epoch_root == root",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "current not in walked",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "e.cycle_occurrence == Present[CycleOccurrenceId](value=current.identity)",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "e.edge in {M2Edge.B6a, M2Edge.B15}",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "e.identity == c.predecessor_entry",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        (
+            "e.identity == c.predecessor_entry and e.cycle_occurrence == Prese"
+            "nt[CycleOccurrenceId](value=current.identity)"
+        ),
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "e.identity.epoch_root == root",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "e.identity.epoch_root == root and e.edge in {M2Edge.B6a, M2Edge.B15}",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "effect or LifecycleCause.INCONSISTENT_RECORDS",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "isinstance(predecessor, LifecycleCause)",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "len(firsts) != 1",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "len(following) != 1",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "len(walked) != len(occurrences)",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "not following",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "not isinstance(effect, OccurrenceReplayed)",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_chain",
+        "not occurrences",
+    ): (
+        "Named predecessor traversal and unique reachability; CB-b/CB-d wi"
+        "tness broken and incomplete chains."
+    ),
+    (
+        "_occurrence_effect",
+        "_unreadable(records, CycleOccurrence, M2PositionEntry)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "c.predecessor_entry == predecessor.identity",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        (
+            "c.predecessor_entry == predecessor.identity and c.target_state =="
+            " M2Position.S6_REMEDIATION_ACTIVE"
+        ),
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "c.target_state == M2Position.S6_REMEDIATION_ACTIVE",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "closer == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "e.edge in {M2Edge.B6a, M2Edge.B15}",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "e.predecessor == Present[M2PositionEntryId](value=predecessor.identity)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        (
+            "e.predecessor == Present[M2PositionEntryId](value=predecessor.ide"
+            "ntity) and e.edge in {M2Edge.B6a, M2Edge.B15}"
+        ),
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "edge == M2Edge.B15",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "effect",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "effect == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "entries",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "entry.cycle_occurrence == Present[CycleOccurrenceId](value=occurrence.identity)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "entry.edge == edge",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "entry.identity.epoch_root == predecessor.identity.epoch_root",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "entry.state == M2Position.S6_REMEDIATION_ACTIVE",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "isinstance(prior, LifecycleCause)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "len(entries) != 1",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "len(occurrences) != 1",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "len(occurrences) != 1 or len(entries) != 1",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "not isinstance(closer, WorkerActivationRecord)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "not isinstance(predecessor.cycle_occurrence, Present)",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "not occurrences",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "occurrence.activation == ABSENT",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "occurrence.envelope == ABSENT",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "occurrence.establishing_edge == edge",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_occurrence_effect",
+        "occurrence.predecessor_closure_activation == closure",
+    ): (
+        "Entire same-key pair and predecessor-closure comparison; LO-7 wit"
+        "nesses differing, missing and unreadable companions."
+    ),
+    (
+        "_predecessor",
+        "_unreadable(records, M2PositionEntry)",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "e.identity == predecessor",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "edge == M2Edge.B6a",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "found[0].state != expected",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "len(found) != 1",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "len(found) != 1 or predecessor.epoch_root != root or found[0].state != expected",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_predecessor",
+        "predecessor.epoch_root != root",
+    ): (
+        "Explicit persisted predecessor identity/root/position prerequisit"
+        "e; replay never infers a predecessor from current position."
+    ),
+    (
+        "_read_pass",
+        "isinstance(record, UnreadableRecord)",
+    ): (
+        "Unreadable-record typing for the bounded enumerate interface; unr"
+        "eadability is retained by record class."
+    ),
+    (
+        "_rows",
+        "isinstance(r, kind)",
+    ): (
+        "Typed record projection; the named act guards validate selected i"
+        "dentities and entire effects."
+    ),
+    (
+        "_truth",
+        "value",
+    ): "Representation of a determined boolean only; no indeterminate value is coerced here.",
+    (
+        "admitted_obligations_fact",
+        "_unreadable(records, AuthorityEnvelopeRecord, InputPackageRecord)",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "e.envelope.identity == envelope",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "frozenset(obligations) == bound.obligations",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        (
+            "isinstance(bound, LifecycleIndeterminate) or isinstance(frozen, L"
+            "ifecycleCause) or reference.value != frozen.identity"
+        ),
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "isinstance(r, RemediationObligationReference)",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "len(envelopes) != 1",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "len(obligations) == len(set(obligations))",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "len(packages) != 1",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "len(packages) != 1 or not isinstance(e.cycle_occurrence, Present)",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "not isinstance(e.cycle_occurrence, Present)",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "not isinstance(reference, Carried)",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "p.cycle_occurrence == e.cycle_occurrence",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        (
+            "p.cycle_occurrence == e.cycle_occurrence and len(obligations) == "
+            "len(set(obligations)) and (frozenset(obligations) == bound.obliga"
+            "tions)"
+        ),
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "p.package.identity == package",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_obligations_fact",
+        "reference.value != frozen.identity",
+    ): (
+        "E-14 applicability and exact package set/cardinality prerequisite"
+        "s to OA-2; no extra dispatch input is introduced."
+    ),
+    (
+        "admitted_set",
+        "_unreadable(records, RemediationObligation)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "closer or LifecycleCause.INCONSISTENT_RECORDS",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "effect",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        (
+            "force.cause in {dv.IndeterminacyCause.UNREADABLE_INPUT, dv.Indete"
+            "rminacyCause.UNSTABLE_READ}"
+        ),
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "isinstance(chain, LifecycleCause)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "isinstance(current, LifecycleCause)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "isinstance(force, dv.Indeterminate)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "isinstance(frozen, LifecycleCause)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "not isinstance(closer, WorkerActivationRecord)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "not isinstance(force, dv.ObligationForce)",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "o.member_finding not in closed",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        "r.assessment.identity.closure_activation == closer.identity",
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "admitted_set",
+        (
+            "r.assessment.identity.closure_activation == closer.identity and i"
+            "sinstance(r.verdict, ClosedVerdict)"
+        ),
+    ): (
+        "Force and predecessor-closure projection; SS-1/SS-4 target only t"
+        "he shrink decisions, not failure propagation."
+    ),
+    (
+        "b15_budget",
+        "used < policy.b15_budget",
+    ): (
+        "Available/exhausted result dispatch from the named chain/policy g"
+        "uards; no stored counter or reset."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(bound, LifecycleIndeterminate)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(i, DisputeItem)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(i, WorkerRefusalOrExpansionItem)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(ingestion, LifecycleCause)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(items, LifecycleCause)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "not isinstance(run.cycle_occurrence, Present)",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_admissibility",
+        "run.role != Role.BOUNDED_CLOSURE_VERIFIER",
+    ): (
+        "Typed role/occurrence/result prerequisites before the OA-3 admitt"
+        "ed-bound guard; legitimate omitted results remain gaps."
+    ),
+    (
+        "closure_scope_facts",
+        "closer is None",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "closure_scope_facts",
+        "isinstance(bound, LifecycleIndeterminate)",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "closure_scope_facts",
+        "isinstance(closer, LifecycleCause)",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "closure_scope_facts",
+        "isinstance(current, LifecycleCause)",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "closure_scope_facts",
+        "isinstance(frozen, LifecycleCause)",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "closure_scope_facts",
+        "isinstance(scope, dv.Indeterminate)",
+    ): (
+        "ST-04 scope or admitted-set dispatch by completed closer presence"
+        "; SM-2 targets the membership subset fact."
+    ),
+    (
+        "cycle_facts",
+        "_assessment_effect(records, closer, current)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "_closure_history_integrity(records, root)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "bool(scope.members) and scope.members <= set(frozen.members)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "ce0b is not None",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "ce0c is not None",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "closer is None",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "isinstance(closer, LifecycleCause)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "isinstance(current, LifecycleCause)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "isinstance(next_bound, dv.CycleBound)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        (
+            "isinstance(scope, dv.Indeterminate) or isinstance(frozen, Lifecyc"
+            "leCause) or isinstance(bound, LifecycleIndeterminate)"
+        ),
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "not isinstance(budget, BudgetIndeterminate)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "not set(upstream) <= UPSTREAM_CYCLE",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "r.assessment.identity.closure_activation == closer.identity",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "scope.members <= set(frozen.members)",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "set(upstream) <= UPSTREAM_CYCLE",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "cycle_facts",
+        "unchanged is not None",
+    ): (
+        "Availability/result dispatch around individually mutated CE facts"
+        "; missing information stays absent."
+    ),
+    (
+        "discovery_determination",
+        "(verdicts[0] == DiscoveryVerdict.NO_FINDINGS) == (not findings)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "isinstance(bound, LifecycleCause)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "isinstance(i, DiscoveryVerdictItem)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "isinstance(i, FindingItem)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "isinstance(ingestion, LifecycleCause)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "len(verdicts) != 1",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        (
+            "not any((not isinstance(i, DiscoveryVerdictItem | FindingItem | W"
+            "orkerRefusalOrExpansionItem) for i in ingestion.items))"
+        ),
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "not findings",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "not isinstance(i, DiscoveryVerdictItem | FindingItem | WorkerRefusalOrExpansionItem)",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "run.role != Role.DISCOVERY_REVIEWER",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "discovery_determination",
+        "verdicts[0] == DiscoveryVerdict.NO_FINDINGS",
+    ): (
+        "Typed discovery outcome dispatch and verdict cardinality; OC-1/OC"
+        "-4 target conformance, FA-5 binding."
+    ),
+    (
+        "enter_first_occurrence",
+        "isinstance(evaluated, sm.Refused)",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "isinstance(predecessor, LifecycleCause)",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "isinstance(previous, OccurrenceReplayed)",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "isinstance(result, LifecycleCause)",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "not isinstance(position, dv.Occupancy)",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "not isinstance(position, dv.Occupancy) or position.reached != predecessor",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "not set(upstream) <= UPSTREAM_B6A",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "position.reached != predecessor",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "previous is not None",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "enter_first_occurrence",
+        "set(upstream) <= UPSTREAM_B6A",
+    ): (
+        "Predecessor-key replay before new-transition guards; LO-5 and imm"
+        "ediate/restarted replay witnesses cover ordering."
+    ),
+    (
+        "freeze",
+        "isinstance(bound, LifecycleCause)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "isinstance(completed, LifecycleCause)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "isinstance(outcome, LifecycleIndeterminate)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "isinstance(outcome, Nonconformant)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "isinstance(previous, FreezeReplayed)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "not isinstance(position, dv.Occupancy)",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        (
+            "not isinstance(position, dv.Occupancy) or position.reached.state "
+            "!= M2Position.S4_DISCOVERY_ACTIVE"
+        ),
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "position.reached.state != M2Position.S4_DISCOVERY_ACTIVE",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "previous is not None",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "previous or LifecycleCause.WRITE_REFUSED",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze",
+        "run.role != Role.DISCOVERY_REVIEWER",
+    ): (
+        "Typed determination/position/replay dispatch; the named FA/LO gua"
+        "rds cover the independent operation decisions."
+    ),
+    (
+        "freeze_facts",
+        "e.envelope.resolved_root == run.resolved_root",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "e.envelope.resolved_root == run.resolved_root and e.envelope.role == Role.IMPLEMENTER",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "e.envelope.role == Role.IMPLEMENTER",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "isinstance(outcome, DiscoveryOutcome)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "isinstance(outcome, Nonconformant)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        (
+            "isinstance(p, dv.Occupancy) and p.reached.state in {M3Position.AC"
+            "TIVATION_COMPLETED, M3Position.ACTIVATION_CLOSED_UNADOPTED, M3Pos"
+            "ition.ENVELOPE_VOIDED}"
+        ),
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "not _unreadable(records, AuthorityEnvelopeRecord, M3PositionEntry)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "not isinstance(bound, LifecycleCause)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "not isinstance(bound, LifecycleCause) and isinstance(completed, bool)",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        (
+            "p.reached.state in {M3Position.ACTIVATION_COMPLETED, M3Position.A"
+            "CTIVATION_CLOSED_UNADOPTED, M3Position.ENVELOPE_VOIDED}"
+        ),
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "freeze_facts",
+        "terminal and all((isinstance(p, dv.Occupancy) for p in terminal))",
+    ): (
+        "ST-05 fact composition from completed/adopted discovery and termi"
+        "nal implementer prerequisites; no writes."
+    ),
+    (
+        "membership_facts",
+        "_completed(records, run) is True",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "_unreadable(records, FindingRecord, RemediationObligation)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "_unreadable(records, FrozenFindingSet)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "completed == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "completed == frozenset({frozen.originating_activation})",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        (
+            "completed == frozenset({frozen.originating_activation}) and isins"
+            "tance(run, WorkerActivationRecord) and (_completed(records, run) "
+            "is True) and (run.stage == frozen.stage)"
+        ),
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "len(findings) == len(frozen.members)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        (
+            "len(findings) == len(frozen.members) and {r.identity for r in fin"
+            "dings} == set(frozen.members)"
+        ),
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "len(frozen.members) == len(set(frozen.members))",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "len(obligations) == len(frozen.members)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "len(sets) != 1",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "not frozen.members",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "not sets",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "o.identity.parent_frozen_set == frozen.identity",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "r.finding.originating_authorization == root",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "r.originating_activation == frozen.originating_activation",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "r.stage == frozen.stage",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "r.stage == frozen.stage and r.originating_activation == frozen.originating_activation",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "run.stage == frozen.stage",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "s.resolved_root == root",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        (
+            "unchanged and len(frozen.members) == len(set(frozen.members)) and"
+            " (len(obligations) == len(frozen.members)) and ({o.member_finding"
+            " for o in obligations} == set(frozen.members))"
+        ),
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "{o.member_finding for o in obligations} == set(frozen.members)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "membership_facts",
+        "{r.identity for r in findings} == set(frozen.members)",
+    ): (
+        "Structural set/member/obligation prerequisites to immutable membe"
+        "rship; MI-2/MI-4 exercise the final conjunction."
+    ),
+    (
+        "post_freeze_candidates",
+        "_unreadable(records, PostFreezeCandidateRecord, WorkerActivationRecord, CycleOccurrence)",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "isinstance(occurrence, LifecycleCause) or occurrence.predecessor_entry.epoch_root != root",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "not isinstance(record.cycle_occurrence, Present)",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "occurrence.predecessor_entry.epoch_root != root",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "record.cycle_occurrence != run.cycle_occurrence",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        (
+            "record.cycle_occurrence != run.cycle_occurrence or not isinstance"
+            "(record.cycle_occurrence, Present)"
+        ),
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "post_freeze_candidates",
+        "run.resolved_root != root",
+    ): (
+        "Epoch-scoped identity carry with occurrence correlation; no order"
+        "ing, semantic assessment or absorption."
+    ),
+    (
+        "read_lifecycle_records",
+        "first.unreadable != second.unreadable",
+    ): "Two-pass agreement refuses a moving record view; it selects no preferred observation.",
+    (
+        "read_lifecycle_records",
+        "frozenset(first.records) != frozenset(second.records)",
+    ): "Two-pass agreement refuses a moving record view; it selects no preferred observation.",
+    (
+        "read_lifecycle_records",
+        (
+            "frozenset(first.records) != frozenset(second.records) or first.un"
+            "readable != second.unreadable"
+        ),
+    ): "Two-pass agreement refuses a moving record view; it selects no preferred observation.",
+    (
+        "record_closure_assessments",
+        "_unreadable(records, ClosureAssessmentRecord)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "effect",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "effect == LifecycleCause.ASSESSMENTS_NOT_RECORDED",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "effect == LifecycleCause.UNREADABLE_RECORDS",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "effect not in {None, LifecycleCause.ASSESSMENTS_NOT_RECORDED}",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "isinstance(admission, Nonconformant)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "isinstance(items, LifecycleCause)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "isinstance(occurrence, LifecycleCause)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "isinstance(state, LifecycleCause)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "not isinstance(admission, Admissible)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "not isinstance(run.cycle_occurrence, Present)",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "not items",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "not previous",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "not previous and effect not in {None, LifecycleCause.ASSESSMENTS_NOT_RECORDED}",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "r.assessment.identity.closure_activation == activation",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "run.role != Role.BOUNDED_CLOSURE_VERIFIER",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_closure_assessments",
+        "state is not True",
+    ): (
+        "Typed adopted outcome and complete existing-effect dispatch; LO-3"
+        " and incompatible-closer tests protect append-once behavior."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "_unreadable(fresh, PostFreezeCandidateRecord)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "_unreadable(records, PostFreezeCandidateRecord)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "isinstance(ingestion, LifecycleCause)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "isinstance(occurrence, LifecycleCause)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "isinstance(state, LifecycleCause)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "len(previous) != count",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        (
+            "len(previous) != count or any((r.cycle_occurrence != run.cycle_oc"
+            "currence or r.candidate.stage != run.stage for r in previous))"
+        ),
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "len(prior) == count",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        (
+            "len(prior) == count and all((r.cycle_occurrence == run.cycle_occu"
+            "rrence and r.candidate.stage == run.stage for r in prior))"
+        ),
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "not count",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "not isinstance(run.cycle_occurrence, Present)",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "prior",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.candidate.observing_activation == activation",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.candidate.stage != run.stage",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.candidate.stage == run.stage",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.cycle_occurrence != run.cycle_occurrence",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.cycle_occurrence != run.cycle_occurrence or r.candidate.stage != run.stage",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.cycle_occurrence == run.cycle_occurrence",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "r.cycle_occurrence == run.cycle_occurrence and r.candidate.stage == run.stage",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "record_post_freeze_candidates",
+        "run.role not in {Role.REMEDIATOR, Role.BOUNDED_CLOSURE_VERIFIER}",
+    ): (
+        "Candidate count/stage/occurrence replay prerequisites; LO-4 and P"
+        "C-1/2 cover owned writes and adopted sources."
+    ),
+    (
+        "remediation_admissibility",
+        "any((i.change_evidence.production not in ingestion.objective_channel for i in items))",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "i.change_evidence.production not in ingestion.objective_channel",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "i.obligation not in admitted.obligations",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(admitted, LifecycleIndeterminate)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(i, DisputeItem)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(i, ObligationDispositionItem)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(i, WorkerRefusalOrExpansionItem)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(ingestion, LifecycleCause)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "isinstance(run, LifecycleCause)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "len(items) == len(admitted.obligations)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        (
+            "len(items) == len(admitted.obligations) and {i.obligation for i i"
+            "n items} == admitted.obligations"
+        ),
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        (
+            "not any((not isinstance(i, ObligationDispositionItem | DisputeIte"
+            "m | PostFreezeCandidateItem | WorkerRefusalOrExpansionItem) for i"
+            " in ingestion.items))"
+        ),
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        (
+            "not isinstance(i, ObligationDispositionItem | DisputeItem | PostF"
+            "reezeCandidateItem | WorkerRefusalOrExpansionItem)"
+        ),
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "not isinstance(run.cycle_occurrence, Present)",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "run.role != Role.REMEDIATOR",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "remediation_admissibility",
+        "{i.obligation for i in items} == admitted.obligations",
+    ): (
+        "Typed item/evidence correlation prerequisite; OA-1, OC-2/3 and ga"
+        "45 cover non-admitted, duplicate and foreign evidence."
+    ),
+    (
+        "route_after_closure",
+        "closer is None",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "closer is not None",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "effect is not None",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "integrity",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(admission, Nonconformant)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(closer, LifecycleCause)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(current, LifecycleCause)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(predecessor, LifecycleCause)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(previous, OccurrenceReplayed)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "isinstance(result, LifecycleCause)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "not isinstance(admission, Admissible)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "not isinstance(position, dv.Occupancy)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "not isinstance(position, dv.Occupancy) or position.reached != predecessor",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "not isinstance(predecessor.cycle_occurrence, Present)",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "not set(upstream) <= UPSTREAM_CYCLE",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "position.reached != predecessor",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "previous is not None",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+    (
+        "route_after_closure",
+        "set(upstream) <= UPSTREAM_CYCLE",
+    ): (
+        "Current-position and complete persisted-closure prerequisites bef"
+        "ore either evaluator; TO-1/2/3 cover routing branches."
+    ),
+}
+
+ST09_KEYED_ACCESSES: dict[tuple[str, str], tuple[int, str]] = {
+    ("_activation", "envelopes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_activation", "runs[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_assessment_effect", "Present[CycleOccurrenceId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_closer", "Present[CycleOccurrenceId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_closer", "completed[0]"): (
+        2,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_discovery_bound", "envelopes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_establish", "Present[CycleOccurrenceId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_establish", "Present[M2PositionEntryId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_establish", "Present[WorkerActivationId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_freeze_effect", "entries[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    (
+        "_freeze_effect",
+        "membership_facts(records, run.resolved_root).get('FROZEN_SET_UNCHANGED')",
+    ): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("_freeze_effect", "predecessors[0]"): (
+        2,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_freeze_effect", "sets[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_frozen", "sets[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_ingestion", "Present[WorkerActivationId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_ingestion", "items[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_live_facts", "facts['M4_LIVE']"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("_live_facts", "facts['UNRESOLVED_EVENT']"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("_occurrence", "found[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_occurrence_chain", "Present[CycleOccurrenceId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_occurrence_chain", "firsts[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_occurrence_chain", "following[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_occurrence_effect", "Present[CycleOccurrenceId]"): (
+        2,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_occurrence_effect", "Present[M2PositionEntryId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_occurrence_effect", "Present[WorkerActivationId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("_occurrence_effect", "entries[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_occurrence_effect", "occurrences[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("_predecessor", "found[0]"): (
+        2,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("admitted_obligations_fact", "envelopes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("admitted_obligations_fact", "packages[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("cycle_facts", "facts[model.CE_0A.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_0B.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_0C.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_0D.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_1.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_2.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_3.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_4.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_5.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "facts[model.CE_6.name]"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("cycle_facts", "live.get('M4_LIVE')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "live.get('UNRESOLVED_EVENT')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "membership_facts(records, root).get('FROZEN_SET_UNCHANGED')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "upstream.get('BINDINGS_MATCH')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "upstream.get('BOUNDARY_FIXED')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "upstream.get('UNACCOUNTED_MUTATION')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "{'FALSE': 'TRUE', 'TRUE': 'FALSE'}.get(event or '')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("cycle_facts", "{'FALSE': 'TRUE', 'TRUE': 'FALSE'}.get(um or '')"): (
+        1,
+        (
+            "Named fact lookup; absent remains indeterminate. The CE component"
+            " mutants target each relevant lookup."
+        ),
+    ),
+    ("discovery_determination", "ingestion.objective_channel[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("discovery_determination", "verdicts[0]"): (
+        2,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("freeze", "Present[M2PositionEntryId]"): (
+        1,
+        "Runtime generic type parameter, not a selection from persisted records.",
+    ),
+    ("freeze", "outcome.causes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("freeze_facts", "facts['STEP_ACTIVATION_COMPLETED']"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("freeze_facts", "facts['STEP_ENVELOPE_TERMINAL']"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("freeze_facts", "facts['VERDICT_SET_CONSISTENT']"): (
+        2,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("membership_facts", "facts['FROZEN_SET_UNCHANGED']"): (
+        1,
+        "Output fact-map assignment at a fixed ST-05 model key; no input record selection.",
+    ),
+    ("membership_facts", "sets[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("record_closure_assessments", "admission.causes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+    ("route_after_closure", "admission.causes[0]"): (
+        1,
+        (
+            "The sole record/item after explicit cardinality checks; failure n"
+            "ever chooses a preferred record."
+        ),
+    ),
+}
+
 MUTANTS: Final[tuple[Mutant, ...]] = (
     LineMutant(
         guard="ga_equivalence_compare",
@@ -4302,6 +8517,7 @@ MUTANTS: Final[tuple[Mutant, ...]] = (
     *ST06_MUTANTS,
     *ST07_MUTANTS,
     *ST08_MUTANTS,
+    *ST09_MUTANTS,
 )
 
 
@@ -4486,6 +8702,17 @@ def run(mutant: Mutant, *, control: bool = False) -> str:
             except (AssertionError, pytest.fail.Exception):
                 return KILLED
     return SURVIVED
+
+
+@contextmanager
+def st09_substituted(mutant: LineMutant | SchemaMutant) -> Iterator[None]:
+    """Keep the mutation enabled for the independent lawful ST-09 control."""
+    with pytest.MonkeyPatch.context() as patch:
+        substitution = (_line_substituted(mutant, patch, control=False)
+                        if isinstance(mutant, LineMutant)
+                        else _schema_substituted(mutant, patch, control=False))
+        with substitution:
+            yield
 
 
 def main() -> int:
